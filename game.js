@@ -28,14 +28,16 @@ const keys = {};
 const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
 const touchJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
 
+// Aiming Bow Joystick Controls
+const bowAim = { active: false, id: null, angle: 0, dragX: 0, dragY: 0 };
+
 window.addEventListener('keydown', e => {
     keys[e.key.toLowerCase()] = true;
     if (e.code === 'Space') performDash();
-    if (e.key.toLowerCase() === 'e') performBow();
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-// Repositioned UI Buttons specifically fitted for iPad screens
+// Action UI Positions
 const dashBtnArea = { x: CANVAS_WIDTH - 60, y: CANVAS_HEIGHT - 50, r: 28 };
 const slashBtnArea = { x: CANVAS_WIDTH - 60, y: CANVAS_HEIGHT - 125, r: 28 };
 const bowBtnArea = { x: CANVAS_WIDTH - 130, y: CANVAS_HEIGHT - 50, r: 28 };
@@ -54,7 +56,7 @@ function handleTouchStart(e) {
         const touch = e.changedTouches[i];
         const pos = getCanvasTouchPos(touch);
 
-        // Check Button Taps
+        // Tap Dash / Slash
         if (Math.hypot(pos.x - dashBtnArea.x, pos.y - dashBtnArea.y) < dashBtnArea.r + 15) {
             performDash();
             continue;
@@ -63,12 +65,17 @@ function handleTouchStart(e) {
             performSlash();
             continue;
         }
-        if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 15) {
-            performBow();
+
+        // Hold & Drag BOW Button to Aim
+        if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 20 && !bowAim.active) {
+            bowAim.active = true;
+            bowAim.id = touch.identifier;
+            bowAim.dragX = pos.x;
+            bowAim.dragY = pos.y;
             continue;
         }
 
-        // Left half touch activates virtual movement joystick
+        // Virtual Move Joystick (Left Screen)
         if (pos.x < CANVAS_WIDTH / 2 && !touchJoystick.active) {
             touchJoystick.active = true;
             touchJoystick.id = touch.identifier;
@@ -84,10 +91,22 @@ function handleTouchMove(e) {
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
         const touch = e.changedTouches[i];
+        const pos = getCanvasTouchPos(touch);
+
         if (touchJoystick.active && touch.identifier === touchJoystick.id) {
-            const pos = getCanvasTouchPos(touch);
             touchJoystick.moveX = pos.x;
             touchJoystick.moveY = pos.y;
+        }
+
+        // Aiming calculations for Bow
+        if (bowAim.active && touch.identifier === bowAim.id) {
+            bowAim.dragX = pos.x;
+            bowAim.dragY = pos.y;
+            const dx = pos.x - bowBtnArea.x;
+            const dy = pos.y - bowBtnArea.y;
+            if (Math.hypot(dx, dy) > 10) {
+                bowAim.angle = Math.atan2(dy, dx);
+            }
         }
     }
 }
@@ -95,9 +114,18 @@ function handleTouchMove(e) {
 function handleTouchEnd(e) {
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
-        if (touchJoystick.active && e.changedTouches[i].identifier === touchJoystick.id) {
+        const touch = e.changedTouches[i];
+
+        if (touchJoystick.active && touch.identifier === touchJoystick.id) {
             touchJoystick.active = false;
             touchJoystick.id = null;
+        }
+
+        // Release Bow Button to Fire!
+        if (bowAim.active && touch.identifier === bowAim.id) {
+            performBow(bowAim.angle);
+            bowAim.active = false;
+            bowAim.id = null;
         }
     }
 }
@@ -113,7 +141,7 @@ canvas.addEventListener('mousemove', e => {
     mouse.y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
 });
 canvas.addEventListener('mousedown', e => {
-    if (e.button === 2) performBow();
+    if (e.button === 2) performBow(player.angle);
     else performSlash();
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -168,20 +196,20 @@ function performSlash() {
     });
 }
 
-function performBow() {
+function performBow(shootAngle) {
     if (player.energy < 25) return;
     player.energy -= 25;
 
     arrows.push({
-        x: player.x + Math.cos(player.angle) * 15,
-        y: player.y + Math.sin(player.angle) * 15,
-        vx: Math.cos(player.angle) * 420,
-        vy: Math.sin(player.angle) * 420,
-        angle: player.angle,
+        x: player.x + Math.cos(shootAngle) * 15,
+        y: player.y + Math.sin(shootAngle) * 15,
+        vx: Math.cos(shootAngle) * 450,
+        vy: Math.sin(shootAngle) * 450,
+        angle: shootAngle,
         life: 2
     });
 
-    createEmberParticles(player.x + Math.cos(player.angle) * 15, player.y + Math.sin(player.angle) * 15, '#78dcff');
+    createEmberParticles(player.x + Math.cos(shootAngle) * 15, player.y + Math.sin(shootAngle) * 15, '#78dcff');
 }
 
 function createEmberParticles(x, y, color) {
@@ -231,7 +259,10 @@ function update(dt) {
         dy *= 0.7071;
     }
 
-    if (touchJoystick.active && (dx !== 0 || dy !== 0)) {
+    // Aim priority: Aiming with bow turns player, otherwise move direction or mouse
+    if (bowAim.active) {
+        player.angle = bowAim.angle;
+    } else if (touchJoystick.active && (dx !== 0 || dy !== 0)) {
         player.angle = Math.atan2(dy, dx);
     } else if (!touchJoystick.active) {
         player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
@@ -245,8 +276,9 @@ function update(dt) {
 
         if (player.dashTimer <= 0) player.isDashing = false;
     } else {
-        player.x += dx * player.speed * dt;
-        player.y += dy * player.speed * dt;
+        const moveSpeed = bowAim.active ? player.speed * 0.6 : player.speed; // Slow down slightly while aiming
+        player.x += dx * moveSpeed * dt;
+        player.y += dy * moveSpeed * dt;
     }
 
     player.x = Math.max(player.size, Math.min(CANVAS_WIDTH - player.size, player.x));
@@ -267,7 +299,7 @@ function update(dt) {
         if (player.ghosts[i].alpha <= 0) player.ghosts.splice(i, 1);
     }
 
-    // Update Player Arrows
+    // Update Arrows
     for (let i = arrows.length - 1; i >= 0; i--) {
         const a = arrows[i];
         a.life -= dt;
@@ -286,7 +318,7 @@ function update(dt) {
         if (hit || a.life <= 0) arrows.splice(i, 1);
     }
 
-    // Update Sword Slashes & Energy Regen
+    // Update Slashes
     for (let i = slashes.length - 1; i >= 0; i--) {
         const s = slashes[i];
         s.life -= dt;
@@ -305,7 +337,7 @@ function update(dt) {
         if (s.life <= 0) slashes.splice(i, 1);
     }
 
-    // Update Turrets & AI Shooting
+    // Update Turrets
     turrets.forEach(t => {
         if (t.hp > 0) {
             const distToPlayer = Math.hypot(player.x - t.x, player.y - t.y);
@@ -326,7 +358,7 @@ function update(dt) {
         }
     });
 
-    // Update Enemy Projectiles
+    // Update Projectiles
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
         p.life -= dt;
@@ -345,24 +377,24 @@ function update(dt) {
         if (p.life <= 0) projectiles.splice(i, 1);
     }
 
-    // Guiding Light Logic
+    // Guiding Light Reticle dynamic position
     guidingLight.pulse += dt * 4;
-    const floatOffsetX = Math.cos(guidingLight.pulse) * 10;
-    const floatOffsetY = Math.sin(guidingLight.pulse) * 10;
+    const floatOffsetX = Math.cos(guidingLight.pulse) * 8;
+    const floatOffsetY = Math.sin(guidingLight.pulse) * 8;
 
-    const reticleDist = 45;
+    const reticleDist = bowAim.active ? 120 : 35;
     guidingLight.targetX = player.x + Math.cos(player.angle) * reticleDist + floatOffsetX;
     guidingLight.targetY = player.y + Math.sin(player.angle) * reticleDist + floatOffsetY;
 
-    guidingLight.x += (guidingLight.targetX - guidingLight.x) * dt * 7;
-    guidingLight.y += (guidingLight.targetY - guidingLight.y) * dt * 7;
+    guidingLight.x += (guidingLight.targetX - guidingLight.x) * dt * 8;
+    guidingLight.y += (guidingLight.targetY - guidingLight.y) * dt * 8;
 }
 
 function draw() {
     ctx.fillStyle = '#11141c';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Floor Grid
+    // Grid Floor
     ctx.strokeStyle = '#1d2230';
     ctx.lineWidth = 1;
     for (let x = 0; x < CANVAS_WIDTH; x += 32) {
@@ -372,7 +404,7 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.stroke();
     }
 
-    // Draw Particles
+    // Particles
     particles.forEach(p => {
         ctx.fillStyle = p.color;
         ctx.globalAlpha = p.life / p.maxLife;
@@ -380,7 +412,7 @@ function draw() {
         ctx.globalAlpha = 1.0;
     });
 
-    // Draw Turrets
+    // Turrets
     turrets.forEach(t => {
         if (t.hp > 0) {
             ctx.fillStyle = '#2f3542';
@@ -391,13 +423,12 @@ function draw() {
             ctx.arc(t.x, t.y, 6, 0, Math.PI * 2);
             ctx.fill();
 
-            // HP Bar
             ctx.fillStyle = '#ff4757';
             ctx.fillRect(t.x - 12, t.y - 18, (t.hp / t.maxHp) * 24, 3);
         }
     });
 
-    // Draw Enemy Projectiles
+    // Enemy Projectiles
     projectiles.forEach(p => {
         ctx.fillStyle = '#ff4757';
         ctx.beginPath();
@@ -405,7 +436,7 @@ function draw() {
         ctx.fill();
     });
 
-    // Draw Player Arrows
+    // Player Arrows
     arrows.forEach(a => {
         ctx.save();
         ctx.translate(a.x, a.y);
@@ -415,7 +446,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Ghost trails
+    // Ghosts
     player.ghosts.forEach(g => {
         ctx.save();
         ctx.translate(g.x, g.y);
@@ -427,7 +458,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Draw Player
+    // Player
     ctx.save();
     ctx.translate(player.x, player.y);
     ctx.rotate(player.angle);
@@ -441,7 +472,19 @@ function draw() {
     ctx.fillRect(0, -3, 10, 6);
     ctx.restore();
 
-    // Draw Sword Slash
+    // Aim Line Indicator when charging bow
+    if (bowAim.active) {
+        ctx.strokeStyle = 'rgba(120, 220, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y);
+        ctx.lineTo(guidingLight.x, guidingLight.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Slashes
     slashes.forEach(s => {
         ctx.save();
         ctx.translate(s.x, s.y);
@@ -457,13 +500,13 @@ function draw() {
         ctx.restore();
     });
 
-    // Draw Guiding Light Companion
+    // Guiding Light Companion / Target Reticle
     const glowGradient = ctx.createRadialGradient(
         guidingLight.x, guidingLight.y, 1,
         guidingLight.x, guidingLight.y, 18
     );
-    glowGradient.addColorStop(0, 'rgba(120, 220, 255, 0.9)');
-    glowGradient.addColorStop(0.5, 'rgba(60, 160, 240, 0.3)');
+    glowGradient.addColorStop(0, bowAim.active ? 'rgba(168, 85, 247, 0.9)' : 'rgba(120, 220, 255, 0.9)');
+    glowGradient.addColorStop(0.5, bowAim.active ? 'rgba(147, 51, 234, 0.4)' : 'rgba(60, 160, 240, 0.3)');
     glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
     ctx.fillStyle = glowGradient;
@@ -484,7 +527,7 @@ function draw() {
     ctx.strokeStyle = '#334155';
     ctx.strokeRect(15, 15, 120, 12);
 
-    // Touch UI Controls (Always drawn on Touch Devices)
+    // Touch Controls
     if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) {
         if (touchJoystick.active) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -499,7 +542,7 @@ function draw() {
             ctx.fill();
         }
 
-        // DASH (Cyan)
+        // DASH
         ctx.fillStyle = 'rgba(120, 220, 255, 0.35)';
         ctx.strokeStyle = 'rgba(120, 220, 255, 0.9)';
         ctx.lineWidth = 2;
@@ -508,7 +551,7 @@ function draw() {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 4);
 
-        // SLASH (Green)
+        // SLASH
         ctx.fillStyle = 'rgba(72, 239, 173, 0.35)';
         ctx.strokeStyle = 'rgba(72, 239, 173, 0.9)';
         ctx.beginPath(); ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, 0, Math.PI * 2);
@@ -516,13 +559,25 @@ function draw() {
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 4);
 
-        // BOW (Purple)
-        ctx.fillStyle = 'rgba(168, 85, 247, 0.35)';
+        // BOW (Drag to Aim Visuals)
+        ctx.fillStyle = bowAim.active ? 'rgba(168, 85, 247, 0.6)' : 'rgba(168, 85, 247, 0.35)';
         ctx.strokeStyle = 'rgba(168, 85, 247, 0.9)';
         ctx.beginPath(); ctx.arc(bowBtnArea.x, bowBtnArea.y, bowBtnArea.r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('BOW', bowBtnArea.x, bowBtnArea.y + 4);
+
+        if (bowAim.active) {
+            ctx.strokeStyle = 'rgba(168, 85, 247, 0.8)';
+            ctx.beginPath();
+            ctx.arc(bowBtnArea.x, bowBtnArea.y, 45, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(bowAim.dragX, bowAim.dragY, 10, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 }
 
