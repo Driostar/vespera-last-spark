@@ -25,7 +25,8 @@ resizeCanvas();
 
 // Inputs
 const keys = {};
-const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, active: false };
+const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, isMoving: false };
+let mouseTimeout = null;
 
 // Joysticks & Touch Locks
 const moveJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
@@ -152,7 +153,12 @@ canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mouse.x = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
     mouse.y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
-    mouse.active = true;
+    
+    mouse.isMoving = true;
+    clearTimeout(mouseTimeout);
+    mouseTimeout = setTimeout(() => {
+        mouse.isMoving = false;
+    }, 100);
 });
 
 canvas.addEventListener('mousedown', e => {
@@ -293,14 +299,14 @@ function update(dt) {
 
     const isBowArmed = bowJoystick.active && bowJoystick.dist > BOW_DEADZONE;
     
-    // Updated facing logic: retains last angle when standing still
+    // Rotation updates only when an active control is used
     if (isBowArmed) {
         player.angle = bowJoystick.angle;
     } else if (moveJoystick.active && (dx !== 0 || dy !== 0)) {
         player.angle = Math.atan2(dy, dx);
     } else if (dx !== 0 || dy !== 0) {
         player.angle = Math.atan2(dy, dx);
-    } else if (mouse.active && !isTouchDevice) {
+    } else if (mouse.isMoving && !isTouchDevice) {
         player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
     }
 
