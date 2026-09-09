@@ -29,7 +29,7 @@ const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
 
 // Joysticks
 const moveJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
-const bowJoystick = { active: false, id: null, angle: 0, dragX: 0, dragY: 0 };
+const bowJoystick = { active: false, id: null, angle: 0, dragX: 0, dragY: 0, isCharging: false };
 
 window.addEventListener('keydown', e => {
     keys[e.key.toLowerCase()] = true;
@@ -66,13 +66,14 @@ function handleTouchStart(e) {
             continue;
         }
 
-        // Touch strictly ON the Bow Button to Aim
+        // Touch ON Bow Button to start aiming/charging (Does NOT shoot immediately)
         if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 20 && !bowJoystick.active) {
             bowJoystick.active = true;
             bowJoystick.id = touch.identifier;
             bowJoystick.dragX = pos.x;
             bowJoystick.dragY = pos.y;
             bowJoystick.angle = player.angle;
+            bowJoystick.isCharging = true;
             continue;
         }
 
@@ -122,10 +123,12 @@ function handleTouchEnd(e) {
             moveJoystick.id = null;
         }
 
+        // Releasing Bow Button fires arrow
         if (bowJoystick.active && touch.identifier === bowJoystick.id) {
             performBow(bowJoystick.angle);
             bowJoystick.active = false;
             bowJoystick.id = null;
+            bowJoystick.isCharging = false;
         }
     }
 }
@@ -207,7 +210,7 @@ function performBow(shootAngle) {
         vy: Math.sin(shootAngle) * 450,
         angle: shootAngle,
         distTraveled: 0,
-        maxDist: 280 // Limited bow range
+        maxDist: 280
     });
 
     createEmberParticles(player.x + Math.cos(shootAngle) * 15, player.y + Math.sin(shootAngle) * 15, '#78dcff');
@@ -318,7 +321,6 @@ function update(dt) {
             }
         });
 
-        // Dissolve arrow when reaching max range
         if (a.distTraveled >= a.maxDist) {
             createEmberParticles(a.x, a.y, '#78dcff');
             hit = true;
@@ -386,17 +388,15 @@ function update(dt) {
         if (p.life <= 0) projectiles.splice(i, 1);
     }
 
-    // Smooth Companion Logic: Gently hovers by shoulder when idle, leads ahead when aiming
+    // Companion hover logic
     guidingLight.pulse += dt * 3;
     const floatOffsetX = Math.cos(guidingLight.pulse) * 6;
     const floatOffsetY = Math.sin(guidingLight.pulse) * 6;
 
     if (bowJoystick.active) {
-        // Flies forward to show ranged trajectory
         guidingLight.targetX = player.x + Math.cos(player.angle) * 120 + floatOffsetX;
         guidingLight.targetY = player.y + Math.sin(player.angle) * 120 + floatOffsetY;
     } else {
-        // Natural resting spot hovering over top shoulder
         const shoulderAngle = player.angle - Math.PI / 4;
         guidingLight.targetX = player.x + Math.cos(shoulderAngle) * 22 + floatOffsetX;
         guidingLight.targetY = player.y + Math.sin(shoulderAngle) * 22 + floatOffsetY;
@@ -420,7 +420,7 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.stroke();
     }
 
-    // Draw Particles
+    // Particles
     particles.forEach(p => {
         ctx.fillStyle = p.color;
         ctx.globalAlpha = p.life / p.maxLife;
@@ -428,7 +428,7 @@ function draw() {
         ctx.globalAlpha = 1.0;
     });
 
-    // Draw Turrets
+    // Turrets
     turrets.forEach(t => {
         if (t.hp > 0) {
             ctx.fillStyle = '#2f3542';
@@ -444,7 +444,7 @@ function draw() {
         }
     });
 
-    // Draw Enemy Projectiles
+    // Enemy Projectiles
     projectiles.forEach(p => {
         ctx.fillStyle = '#ff4757';
         ctx.beginPath();
@@ -452,7 +452,7 @@ function draw() {
         ctx.fill();
     });
 
-    // Draw Player Arrows
+    // Player Arrows
     arrows.forEach(a => {
         ctx.save();
         ctx.translate(a.x, a.y);
@@ -462,7 +462,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Ghost trails
+    // Ghosts
     player.ghosts.forEach(g => {
         ctx.save();
         ctx.translate(g.x, g.y);
@@ -474,7 +474,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Draw Player
+    // Player
     ctx.save();
     ctx.translate(player.x, player.y);
     ctx.rotate(player.angle);
@@ -488,10 +488,10 @@ function draw() {
     ctx.fillRect(0, -3, 10, 6);
     ctx.restore();
 
-    // Trajectory Line when aiming
+    // Aim Trajectory Line when charging
     if (bowJoystick.active) {
-        ctx.strokeStyle = 'rgba(168, 85, 247, 0.5)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(168, 85, 247, 0.7)';
+        ctx.lineWidth = 1.5;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(player.x, player.y);
@@ -500,7 +500,7 @@ function draw() {
         ctx.setLineDash([]);
     }
 
-    // Draw Sword Slashes
+    // Sword Slashes
     slashes.forEach(s => {
         ctx.save();
         ctx.translate(s.x, s.y);
@@ -516,7 +516,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Draw Guiding Light Companion
+    // Companion Spirit
     const glowGradient = ctx.createRadialGradient(
         guidingLight.x, guidingLight.y, 1,
         guidingLight.x, guidingLight.y, 18
@@ -545,7 +545,6 @@ function draw() {
 
     // Touch UI Controls
     if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) {
-        // Movement Joystick
         if (moveJoystick.active) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.lineWidth = 2;
@@ -559,7 +558,7 @@ function draw() {
             ctx.fill();
         }
 
-        // DASH (Cyan, bottom right)
+        // DASH
         ctx.fillStyle = 'rgba(120, 220, 255, 0.35)';
         ctx.strokeStyle = 'rgba(120, 220, 255, 0.9)';
         ctx.lineWidth = 2;
@@ -568,7 +567,7 @@ function draw() {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 3);
 
-        // SLASH (Green, top right)
+        // SLASH
         ctx.fillStyle = 'rgba(72, 239, 173, 0.35)';
         ctx.strokeStyle = 'rgba(72, 239, 173, 0.9)';
         ctx.beginPath(); ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, 0, Math.PI * 2);
@@ -576,7 +575,7 @@ function draw() {
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 3);
 
-        // BOW (Purple button, drag inside to aim)
+        // BOW
         ctx.fillStyle = bowJoystick.active ? 'rgba(168, 85, 247, 0.65)' : 'rgba(168, 85, 247, 0.35)';
         ctx.strokeStyle = 'rgba(168, 85, 247, 0.9)';
         ctx.beginPath(); ctx.arc(bowBtnArea.x, bowBtnArea.y, bowBtnArea.r, 0, Math.PI * 2);
