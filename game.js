@@ -5,6 +5,15 @@ let lastTime = 0;
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 450;
 
+// Screen Shake State
+let shakeTimer = 0;
+let shakeIntensity = 0;
+
+function triggerShake(duration, intensity) {
+    shakeTimer = duration;
+    shakeIntensity = intensity;
+}
+
 function resizeCanvas() {
     const windowRatio = window.innerWidth / window.innerHeight;
     const gameRatio = CANVAS_WIDTH / CANVAS_HEIGHT;
@@ -194,10 +203,10 @@ const arrows = [];
 const particles = [];
 const projectiles = [];
 
-// Rune-Sentry Turrets
+// Rune-Sentry Turrets with hit flash feedback
 const turrets = [
-    { x: 620, y: 140, hp: 4, maxHp: 4, shootTimer: 2, range: 320 },
-    { x: 620, y: 310, hp: 4, maxHp: 4, shootTimer: 3, range: 320 }
+    { x: 620, y: 140, hp: 4, maxHp: 4, shootTimer: 2, range: 320, hitFlash: 0 },
+    { x: 620, y: 310, hp: 4, maxHp: 4, shootTimer: 3, range: 320, hitFlash: 0 }
 ];
 
 function performDash() {
@@ -208,6 +217,9 @@ function performDash() {
     player.dashCooldown = player.maxDashCooldown;
     player.dashDirX = Math.cos(player.angle);
     player.dashDirY = Math.sin(player.angle);
+    
+    triggerShake(0.15, 4); // Screen shake on dash
+    createEmberParticles(player.x, player.y, '#78dcff', 12);
 }
 
 function performSlash() {
@@ -222,6 +234,8 @@ function performSlash() {
         life: 0.15,
         maxLife: 0.15
     });
+
+    triggerShake(0.1, 3); // Subtle screen shake on swing
 }
 
 function performBow(shootAngle) {
@@ -238,17 +252,18 @@ function performBow(shootAngle) {
         maxDist: 280
     });
 
-    createEmberParticles(player.x + Math.cos(shootAngle) * 15, player.y + Math.sin(shootAngle) * 15, '#78dcff');
+    triggerShake(0.1, 2);
+    createEmberParticles(player.x + Math.cos(shootAngle) * 15, player.y + Math.sin(shootAngle) * 15, '#78dcff', 8);
 }
 
-function createEmberParticles(x, y, color) {
-    for (let i = 0; i < 8; i++) {
+function createEmberParticles(x, y, color, count = 8) {
+    for (let i = 0; i < count; i++) {
         particles.push({
             x: x, y: y,
-            vx: (Math.random() - 0.5) * 90,
-            vy: (Math.random() - 0.5) * 90,
-            life: 0.4,
-            maxLife: 0.4,
+            vx: (Math.random() - 0.5) * 140,
+            vy: (Math.random() - 0.5) * 140,
+            life: 0.5,
+            maxLife: 0.5,
             color: color
         });
     }
@@ -263,6 +278,12 @@ const guidingLight = {
 };
 
 function update(dt) {
+    // Update Screen Shake Timer
+    if (shakeTimer > 0) {
+        shakeTimer -= dt;
+        if (shakeTimer < 0) shakeTimer = 0;
+    }
+
     // Timers Decrement
     if (player.dashCooldown > 0) {
         player.dashCooldown -= dt;
@@ -299,7 +320,6 @@ function update(dt) {
 
     const isBowArmed = bowJoystick.active && bowJoystick.dist > BOW_DEADZONE;
     
-    // Rotation updates only when an active control is used
     if (isBowArmed) {
         player.angle = bowJoystick.angle;
     } else if (moveJoystick.active && (dx !== 0 || dy !== 0)) {
@@ -341,6 +361,11 @@ function update(dt) {
         if (player.ghosts[i].alpha <= 0) player.ghosts.splice(i, 1);
     }
 
+    // Update Turrets & Hit Flash
+    turrets.forEach(t => {
+        if (t.hitFlash > 0) t.hitFlash -= dt;
+    });
+
     // Update Arrows
     for (let i = arrows.length - 1; i >= 0; i--) {
         const a = arrows[i];
@@ -355,13 +380,15 @@ function update(dt) {
         turrets.forEach(t => {
             if (t.hp > 0 && Math.hypot(a.x - t.x, a.y - t.y) < 20) {
                 t.hp -= 2;
-                createEmberParticles(t.x, t.y, '#78dcff');
+                t.hitFlash = 0.15; // Flash white/pink on hit
+                triggerShake(0.12, 3);
+                createEmberParticles(t.x, t.y, '#78dcff', 10);
                 hit = true;
             }
         });
 
         if (a.distTraveled >= a.maxDist) {
-            createEmberParticles(a.x, a.y, '#78dcff');
+            createEmberParticles(a.x, a.y, '#78dcff', 6);
             hit = true;
         }
 
@@ -378,8 +405,10 @@ function update(dt) {
                 const dist = Math.hypot(s.x + Math.cos(s.angle) * 20 - t.x, s.y + Math.sin(s.angle) * 20 - t.y);
                 if (dist < 35) {
                     t.hp -= 1;
+                    t.hitFlash = 0.15;
+                    triggerShake(0.15, 5); // Heavier shake on melee hit
                     player.energy = Math.min(player.maxEnergy, player.energy + 25);
-                    createEmberParticles(t.x, t.y, '#ff4757');
+                    createEmberParticles(t.x, t.y, '#ff4757', 12);
                 }
             }
         });
@@ -387,7 +416,7 @@ function update(dt) {
         if (s.life <= 0) slashes.splice(i, 1);
     }
 
-    // Update Turrets
+    // Update Turrets Attack Behavior
     turrets.forEach(t => {
         if (t.hp > 0) {
             const distToPlayer = Math.hypot(player.x - t.x, player.y - t.y);
@@ -418,7 +447,8 @@ function update(dt) {
         if (!player.isDashing) {
             const dist = Math.hypot(p.x - player.x, p.y - player.y);
             if (dist < player.size + 4) {
-                createEmberParticles(player.x, player.y, '#ff4757');
+                triggerShake(0.2, 6); // Heavy shake when player takes damage
+                createEmberParticles(player.x, player.y, '#ff4757', 14);
                 projectiles.splice(i, 1);
                 continue;
             }
@@ -427,7 +457,7 @@ function update(dt) {
         if (p.life <= 0) projectiles.splice(i, 1);
     }
 
-    // Companion hover logic
+    // Companion hover logic (acting as torch light)
     guidingLight.pulse += dt * 3;
     const floatOffsetX = Math.cos(guidingLight.pulse) * 6;
     const floatOffsetY = Math.sin(guidingLight.pulse) * 6;
@@ -446,6 +476,15 @@ function update(dt) {
 }
 
 function draw() {
+    ctx.save();
+
+    // Apply Screen Shake Offset
+    if (shakeTimer > 0) {
+        const offsetX = (Math.random() - 0.5) * shakeIntensity * 2;
+        const offsetY = (Math.random() - 0.5) * shakeIntensity * 2;
+        ctx.translate(offsetX, offsetY);
+    }
+
     ctx.fillStyle = '#11141c';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
@@ -463,14 +502,14 @@ function draw() {
     particles.forEach(p => {
         ctx.fillStyle = p.color;
         ctx.globalAlpha = p.life / p.maxLife;
-        ctx.fillRect(p.x, p.y, 3, 3);
+        ctx.fillRect(p.x, p.y, 4, 4); // Slightly chunkier pixel particles
         ctx.globalAlpha = 1.0;
     });
 
     // Turrets
     turrets.forEach(t => {
         if (t.hp > 0) {
-            ctx.fillStyle = '#2f3542';
+            ctx.fillStyle = t.hitFlash > 0 ? '#ffffff' : '#2f3542';
             ctx.fillRect(t.x - 12, t.y - 12, 24, 24);
 
             ctx.fillStyle = t.shootTimer < 0.6 ? '#ff6b81' : '#ff4757';
@@ -547,7 +586,7 @@ function draw() {
 
         const progress = 1 - (s.life / s.maxLife);
         ctx.strokeStyle = `rgba(72, 239, 173, ${1 - progress})`;
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 5;
         ctx.beginPath();
         ctx.arc(0, 0, s.radius, -Math.PI / 3, Math.PI / 3);
         ctx.stroke();
@@ -555,27 +594,29 @@ function draw() {
         ctx.restore();
     });
 
-    // Companion Spirit
+    // Companion Spirit (Torch light source)
     const glowGradient = ctx.createRadialGradient(
         guidingLight.x, guidingLight.y, 1,
-        guidingLight.x, guidingLight.y, 18
+        guidingLight.x, guidingLight.y, 24
     );
     const isArmed = bowJoystick.active && bowJoystick.dist > BOW_DEADZONE;
-    glowGradient.addColorStop(0, isArmed ? 'rgba(168, 85, 247, 0.9)' : 'rgba(120, 220, 255, 0.9)');
-    glowGradient.addColorStop(0.5, isArmed ? 'rgba(147, 51, 234, 0.4)' : 'rgba(60, 160, 240, 0.3)');
+    glowGradient.addColorStop(0, isArmed ? 'rgba(168, 85, 247, 0.95)' : 'rgba(255, 140, 60, 0.95)'); // Warmer torch look
+    glowGradient.addColorStop(0.5, isArmed ? 'rgba(147, 51, 234, 0.4)' : 'rgba(230, 90, 20, 0.35)');
     glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
     ctx.fillStyle = glowGradient;
     ctx.beginPath();
-    ctx.arc(guidingLight.x, guidingLight.y, 18, 0, Math.PI * 2);
+    ctx.arc(guidingLight.x, guidingLight.y, 24, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(guidingLight.x, guidingLight.y, 3, 0, Math.PI * 2);
+    ctx.arc(guidingLight.x, guidingLight.y, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Arcane Energy Bar (HUD)
+    ctx.restore(); // Restore from Screen Shake
+
+    // Arcane Energy Bar (HUD - unaffected by screen shake)
     ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
     ctx.fillRect(15, 15, 120, 12);
     ctx.fillStyle = '#78dcff';
@@ -583,7 +624,7 @@ function draw() {
     ctx.strokeStyle = '#334155';
     ctx.strokeRect(15, 15, 120, 12);
 
-    // Touch UI Controls
+    // Touch UI Controls (unaffected by screen shake)
     if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) {
         if (moveJoystick.active) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
