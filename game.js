@@ -173,9 +173,9 @@ const player = {
     isDashing: false,
     dashTimer: 0,
     dashCooldown: 0,
-    maxDashCooldown: 2.0, // 2-second dodge cooldown
+    maxDashCooldown: 1.6, // Adjusted to 1.6s
     slashCooldown: 0,
-    maxSlashCooldown: 1.0, // 1-second attack cooldown
+    maxSlashCooldown: 0.8, // Adjusted to 0.8s
     dashDirX: 0,
     dashDirY: 0,
     dashSpeed: 380,
@@ -596,7 +596,7 @@ function draw() {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 3);
 
-        // DASH COOLDOWN OVERLAY (2s)
+        // DASH COOLDOWN OVERLAY (1.6s)
         if (player.dashCooldown > 0) {
             const ratio = player.dashCooldown / player.maxDashCooldown;
             ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
@@ -615,7 +615,7 @@ function draw() {
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 3);
 
-        // SLASH COOLDOWN OVERLAY (1s)
+        // SLASH COOLDOWN OVERLAY (0.8s)
         if (player.slashCooldown > 0) {
             const ratio = player.slashCooldown / player.maxSlashCooldown;
             ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
