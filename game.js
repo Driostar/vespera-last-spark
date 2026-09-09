@@ -25,9 +25,8 @@ resizeCanvas();
 
 // Inputs
 const keys = {};
-const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, rightDown: false };
+const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
 const touchJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
-const isMobileOrTablet = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
 window.addEventListener('keydown', e => {
     keys[e.key.toLowerCase()] = true;
@@ -36,50 +35,59 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-// Mobile Action Buttons
-const dashBtnArea = { x: CANVAS_WIDTH - 70, y: CANVAS_HEIGHT - 50, r: 26 };
-const slashBtnArea = { x: CANVAS_WIDTH - 60, y: CANVAS_HEIGHT - 115, r: 26 };
-const bowBtnArea = { x: CANVAS_WIDTH - 120, y: CANVAS_HEIGHT - 65, r: 24 };
+// Repositioned UI Buttons specifically fitted for iPad screens
+const dashBtnArea = { x: CANVAS_WIDTH - 60, y: CANVAS_HEIGHT - 50, r: 28 };
+const slashBtnArea = { x: CANVAS_WIDTH - 60, y: CANVAS_HEIGHT - 125, r: 28 };
+const bowBtnArea = { x: CANVAS_WIDTH - 130, y: CANVAS_HEIGHT - 50, r: 28 };
+
+function getCanvasTouchPos(touch) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (touch.clientX - rect.left) * (CANVAS_WIDTH / rect.width),
+        y: (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height)
+    };
+}
 
 function handleTouchStart(e) {
     e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
     for (let i = 0; i < e.changedTouches.length; i++) {
         const touch = e.changedTouches[i];
-        const tx = (touch.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
-        const ty = (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+        const pos = getCanvasTouchPos(touch);
 
-        if (Math.hypot(tx - dashBtnArea.x, ty - dashBtnArea.y) < dashBtnArea.r + 15) {
+        // Check Button Taps
+        if (Math.hypot(pos.x - dashBtnArea.x, pos.y - dashBtnArea.y) < dashBtnArea.r + 15) {
             performDash();
             continue;
         }
-        if (Math.hypot(tx - slashBtnArea.x, ty - slashBtnArea.y) < slashBtnArea.r + 15) {
+        if (Math.hypot(pos.x - slashBtnArea.x, pos.y - slashBtnArea.y) < slashBtnArea.r + 15) {
             performSlash();
             continue;
         }
-        if (Math.hypot(tx - bowBtnArea.x, ty - bowBtnArea.y) < bowBtnArea.r + 15) {
+        if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 15) {
             performBow();
             continue;
         }
-        if (tx < CANVAS_WIDTH / 2 && !touchJoystick.active) {
+
+        // Left half touch activates virtual movement joystick
+        if (pos.x < CANVAS_WIDTH / 2 && !touchJoystick.active) {
             touchJoystick.active = true;
             touchJoystick.id = touch.identifier;
-            touchJoystick.startX = tx;
-            touchJoystick.startY = ty;
-            touchJoystick.moveX = tx;
-            touchJoystick.moveY = ty;
+            touchJoystick.startX = pos.x;
+            touchJoystick.startY = pos.y;
+            touchJoystick.moveX = pos.x;
+            touchJoystick.moveY = pos.y;
         }
     }
 }
 
 function handleTouchMove(e) {
     e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
     for (let i = 0; i < e.changedTouches.length; i++) {
         const touch = e.changedTouches[i];
         if (touchJoystick.active && touch.identifier === touchJoystick.id) {
-            touchJoystick.moveX = (touch.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
-            touchJoystick.moveY = (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+            const pos = getCanvasTouchPos(touch);
+            touchJoystick.moveX = pos.x;
+            touchJoystick.moveY = pos.y;
         }
     }
 }
@@ -161,7 +169,6 @@ function performSlash() {
 }
 
 function performBow() {
-    // Costs 25 energy to shoot an arrow
     if (player.energy < 25) return;
     player.energy -= 25;
 
@@ -270,7 +277,7 @@ function update(dt) {
         let hit = false;
         turrets.forEach(t => {
             if (t.hp > 0 && Math.hypot(a.x - t.x, a.y - t.y) < 20) {
-                t.hp -= 2; // Bow shot deals high precision damage
+                t.hp -= 2;
                 createEmberParticles(t.x, t.y, '#78dcff');
                 hit = true;
             }
@@ -289,7 +296,7 @@ function update(dt) {
                 const dist = Math.hypot(s.x + Math.cos(s.angle) * 20 - t.x, s.y + Math.sin(s.angle) * 20 - t.y);
                 if (dist < 35) {
                     t.hp -= 1;
-                    player.energy = Math.min(player.maxEnergy, player.energy + 20); // Regenerate energy on sword hit
+                    player.energy = Math.min(player.maxEnergy, player.energy + 25);
                     createEmberParticles(t.x, t.y, '#ff4757');
                 }
             }
@@ -338,12 +345,11 @@ function update(dt) {
         if (p.life <= 0) projectiles.splice(i, 1);
     }
 
-    // Guiding Light Logic (Acts as dynamic bow reticle)
+    // Guiding Light Logic
     guidingLight.pulse += dt * 4;
     const floatOffsetX = Math.cos(guidingLight.pulse) * 10;
     const floatOffsetY = Math.sin(guidingLight.pulse) * 10;
 
-    // Extend forward when aiming bow
     const reticleDist = 45;
     guidingLight.targetX = player.x + Math.cos(player.angle) * reticleDist + floatOffsetX;
     guidingLight.targetY = player.y + Math.sin(player.angle) * reticleDist + floatOffsetY;
@@ -451,7 +457,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Draw Guiding Light Companion (Ranged Target Reticle)
+    // Draw Guiding Light Companion
     const glowGradient = ctx.createRadialGradient(
         guidingLight.x, guidingLight.y, 1,
         guidingLight.x, guidingLight.y, 18
@@ -478,8 +484,8 @@ function draw() {
     ctx.strokeStyle = '#334155';
     ctx.strokeRect(15, 15, 120, 12);
 
-    // Mobile Action UI
-    if (isMobileOrTablet) {
+    // Touch UI Controls (Always drawn on Touch Devices)
+    if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) {
         if (touchJoystick.active) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.lineWidth = 2;
@@ -493,26 +499,26 @@ function draw() {
             ctx.fill();
         }
 
-        // DASH
-        ctx.fillStyle = 'rgba(120, 220, 255, 0.3)';
-        ctx.strokeStyle = 'rgba(120, 220, 255, 0.8)';
+        // DASH (Cyan)
+        ctx.fillStyle = 'rgba(120, 220, 255, 0.35)';
+        ctx.strokeStyle = 'rgba(120, 220, 255, 0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(dashBtnArea.x, dashBtnArea.y, dashBtnArea.r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 4);
 
-        // SLASH
-        ctx.fillStyle = 'rgba(72, 239, 173, 0.3)';
-        ctx.strokeStyle = 'rgba(72, 239, 173, 0.8)';
+        // SLASH (Green)
+        ctx.fillStyle = 'rgba(72, 239, 173, 0.35)';
+        ctx.strokeStyle = 'rgba(72, 239, 173, 0.9)';
         ctx.beginPath(); ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 4);
 
-        // BOW
-        ctx.fillStyle = 'rgba(168, 85, 247, 0.3)';
-        ctx.strokeStyle = 'rgba(168, 85, 247, 0.8)';
+        // BOW (Purple)
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.35)';
+        ctx.strokeStyle = 'rgba(168, 85, 247, 0.9)';
         ctx.beginPath(); ctx.arc(bowBtnArea.x, bowBtnArea.y, bowBtnArea.r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ffffff';
