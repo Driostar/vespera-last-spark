@@ -27,9 +27,9 @@ resizeCanvas();
 const keys = {};
 const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
 
-// Dual Joysticks: Left = Move, Right = 360 Bow Aim
+// Joysticks
 const moveJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
-const bowJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0, angle: 0 };
+const bowJoystick = { active: false, id: null, angle: 0, dragX: 0, dragY: 0 };
 
 window.addEventListener('keydown', e => {
     keys[e.key.toLowerCase()] = true;
@@ -37,9 +37,10 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-// Action UI Buttons
-const dashBtnArea = { x: CANVAS_WIDTH - 50, y: 50, r: 24 };
-const slashBtnArea = { x: CANVAS_WIDTH - 110, y: 50, r: 24 };
+// Right Side UI Cluster
+const dashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 45, r: 24 };
+const slashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 105, r: 24 };
+const bowBtnArea = { x: CANVAS_WIDTH - 110, y: CANVAS_HEIGHT - 45, r: 26 };
 
 function getCanvasTouchPos(touch) {
     const rect = canvas.getBoundingClientRect();
@@ -65,6 +66,16 @@ function handleTouchStart(e) {
             continue;
         }
 
+        // Touch strictly ON the Bow Button to Aim
+        if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 20 && !bowJoystick.active) {
+            bowJoystick.active = true;
+            bowJoystick.id = touch.identifier;
+            bowJoystick.dragX = pos.x;
+            bowJoystick.dragY = pos.y;
+            bowJoystick.angle = player.angle;
+            continue;
+        }
+
         // Left Half Touch = Move Joystick
         if (pos.x < CANVAS_WIDTH / 2 && !moveJoystick.active) {
             moveJoystick.active = true;
@@ -73,18 +84,6 @@ function handleTouchStart(e) {
             moveJoystick.startY = pos.y;
             moveJoystick.moveX = pos.x;
             moveJoystick.moveY = pos.y;
-            continue;
-        }
-
-        // Right Half Touch = 360 Bow Aim Joystick
-        if (pos.x >= CANVAS_WIDTH / 2 && !bowJoystick.active) {
-            bowJoystick.active = true;
-            bowJoystick.id = touch.identifier;
-            bowJoystick.startX = pos.x;
-            bowJoystick.startY = pos.y;
-            bowJoystick.moveX = pos.x;
-            bowJoystick.moveY = pos.y;
-            bowJoystick.angle = player.angle;
         }
     }
 }
@@ -101,11 +100,11 @@ function handleTouchMove(e) {
         }
 
         if (bowJoystick.active && touch.identifier === bowJoystick.id) {
-            bowJoystick.moveX = pos.x;
-            bowJoystick.moveY = pos.y;
+            bowJoystick.dragX = pos.x;
+            bowJoystick.dragY = pos.y;
 
-            const dx = pos.x - bowJoystick.startX;
-            const dy = pos.y - bowJoystick.startY;
+            const dx = pos.x - bowBtnArea.x;
+            const dy = pos.y - bowBtnArea.y;
             if (Math.hypot(dx, dy) > 8) {
                 bowJoystick.angle = Math.atan2(dy, dx);
             }
@@ -123,7 +122,6 @@ function handleTouchEnd(e) {
             moveJoystick.id = null;
         }
 
-        // Releasing Right Joystick Fires Arrow!
         if (bowJoystick.active && touch.identifier === bowJoystick.id) {
             performBow(bowJoystick.angle);
             bowJoystick.active = false;
@@ -208,7 +206,8 @@ function performBow(shootAngle) {
         vx: Math.cos(shootAngle) * 450,
         vy: Math.sin(shootAngle) * 450,
         angle: shootAngle,
-        life: 2
+        distTraveled: 0,
+        maxDist: 280 // Limited bow range
     });
 
     createEmberParticles(player.x + Math.cos(shootAngle) * 15, player.y + Math.sin(shootAngle) * 15, '#78dcff');
@@ -261,7 +260,6 @@ function update(dt) {
         dy *= 0.7071;
     }
 
-    // Facing Angle Logic
     if (bowJoystick.active) {
         player.angle = bowJoystick.angle;
     } else if (moveJoystick.active && (dx !== 0 || dy !== 0)) {
@@ -301,12 +299,15 @@ function update(dt) {
         if (player.ghosts[i].alpha <= 0) player.ghosts.splice(i, 1);
     }
 
-    // Update Arrows
+    // Update Arrows with Range Limit
     for (let i = arrows.length - 1; i >= 0; i--) {
         const a = arrows[i];
-        a.life -= dt;
-        a.x += a.vx * dt;
-        a.y += a.vy * dt;
+        const stepX = a.vx * dt;
+        const stepY = a.vy * dt;
+
+        a.x += stepX;
+        a.y += stepY;
+        a.distTraveled += Math.hypot(stepX, stepY);
 
         let hit = false;
         turrets.forEach(t => {
@@ -317,7 +318,13 @@ function update(dt) {
             }
         });
 
-        if (hit || a.life <= 0) arrows.splice(i, 1);
+        // Dissolve arrow when reaching max range
+        if (a.distTraveled >= a.maxDist) {
+            createEmberParticles(a.x, a.y, '#78dcff');
+            hit = true;
+        }
+
+        if (hit) arrows.splice(i, 1);
     }
 
     // Update Slashes
@@ -379,24 +386,31 @@ function update(dt) {
         if (p.life <= 0) projectiles.splice(i, 1);
     }
 
-    // Guiding Light Companion / Target Reticle Position
-    guidingLight.pulse += dt * 4;
-    const floatOffsetX = Math.cos(guidingLight.pulse) * 8;
-    const floatOffsetY = Math.sin(guidingLight.pulse) * 8;
+    // Smooth Companion Logic: Gently hovers by shoulder when idle, leads ahead when aiming
+    guidingLight.pulse += dt * 3;
+    const floatOffsetX = Math.cos(guidingLight.pulse) * 6;
+    const floatOffsetY = Math.sin(guidingLight.pulse) * 6;
 
-    const reticleDist = bowJoystick.active ? 130 : 35;
-    guidingLight.targetX = player.x + Math.cos(player.angle) * reticleDist + floatOffsetX;
-    guidingLight.targetY = player.y + Math.sin(player.angle) * reticleDist + floatOffsetY;
+    if (bowJoystick.active) {
+        // Flies forward to show ranged trajectory
+        guidingLight.targetX = player.x + Math.cos(player.angle) * 120 + floatOffsetX;
+        guidingLight.targetY = player.y + Math.sin(player.angle) * 120 + floatOffsetY;
+    } else {
+        // Natural resting spot hovering over top shoulder
+        const shoulderAngle = player.angle - Math.PI / 4;
+        guidingLight.targetX = player.x + Math.cos(shoulderAngle) * 22 + floatOffsetX;
+        guidingLight.targetY = player.y + Math.sin(shoulderAngle) * 22 + floatOffsetY;
+    }
 
-    guidingLight.x += (guidingLight.targetX - guidingLight.x) * dt * 8;
-    guidingLight.y += (guidingLight.targetY - guidingLight.y) * dt * 8;
+    guidingLight.x += (guidingLight.targetX - guidingLight.x) * dt * 6;
+    guidingLight.y += (guidingLight.targetY - guidingLight.y) * dt * 6;
 }
 
 function draw() {
     ctx.fillStyle = '#11141c';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Floor Grid
+    // Grid Floor
     ctx.strokeStyle = '#1d2230';
     ctx.lineWidth = 1;
     for (let x = 0; x < CANVAS_WIDTH; x += 32) {
@@ -474,7 +488,7 @@ function draw() {
     ctx.fillRect(0, -3, 10, 6);
     ctx.restore();
 
-    // Aim Trajectory Line
+    // Trajectory Line when aiming
     if (bowJoystick.active) {
         ctx.strokeStyle = 'rgba(168, 85, 247, 0.5)';
         ctx.lineWidth = 1;
@@ -502,7 +516,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Draw Guiding Light / Ranged Aim Reticle
+    // Draw Guiding Light Companion
     const glowGradient = ctx.createRadialGradient(
         guidingLight.x, guidingLight.y, 1,
         guidingLight.x, guidingLight.y, 18
@@ -529,9 +543,9 @@ function draw() {
     ctx.strokeStyle = '#334155';
     ctx.strokeRect(15, 15, 120, 12);
 
-    // Touch UI (Always active for touch devices)
+    // Touch UI Controls
     if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) {
-        // Left Movement Joystick
+        // Movement Joystick
         if (moveJoystick.active) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.lineWidth = 2;
@@ -545,21 +559,7 @@ function draw() {
             ctx.fill();
         }
 
-        // Right 360 Bow Aim Joystick
-        if (bowJoystick.active) {
-            ctx.strokeStyle = 'rgba(168, 85, 247, 0.5)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(bowJoystick.startX, bowJoystick.startY, 40, 0, Math.PI * 2);
-            ctx.stroke();
-
-            ctx.fillStyle = 'rgba(168, 85, 247, 0.8)';
-            ctx.beginPath();
-            ctx.arc(bowJoystick.moveX, bowJoystick.moveY, 16, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // DASH Button (Top Right)
+        // DASH (Cyan, bottom right)
         ctx.fillStyle = 'rgba(120, 220, 255, 0.35)';
         ctx.strokeStyle = 'rgba(120, 220, 255, 0.9)';
         ctx.lineWidth = 2;
@@ -568,13 +568,33 @@ function draw() {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 3);
 
-        // SLASH Button (Top Right next to Dash)
+        // SLASH (Green, top right)
         ctx.fillStyle = 'rgba(72, 239, 173, 0.35)';
         ctx.strokeStyle = 'rgba(72, 239, 173, 0.9)';
         ctx.beginPath(); ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 3);
+
+        // BOW (Purple button, drag inside to aim)
+        ctx.fillStyle = bowJoystick.active ? 'rgba(168, 85, 247, 0.65)' : 'rgba(168, 85, 247, 0.35)';
+        ctx.strokeStyle = 'rgba(168, 85, 247, 0.9)';
+        ctx.beginPath(); ctx.arc(bowBtnArea.x, bowBtnArea.y, bowBtnArea.r, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('BOW', bowBtnArea.x, bowBtnArea.y + 3);
+
+        if (bowJoystick.active) {
+            ctx.strokeStyle = 'rgba(168, 85, 247, 0.8)';
+            ctx.beginPath();
+            ctx.arc(bowBtnArea.x, bowBtnArea.y, 45, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(bowJoystick.dragX, bowJoystick.dragY, 8, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 }
 
