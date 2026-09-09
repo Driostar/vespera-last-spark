@@ -25,7 +25,7 @@ resizeCanvas();
 
 // Inputs
 const keys = {};
-const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
+const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, active: false };
 
 // Joysticks & Touch Locks
 const moveJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
@@ -152,6 +152,7 @@ canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     mouse.x = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
     mouse.y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+    mouse.active = true;
 });
 
 canvas.addEventListener('mousedown', e => {
@@ -173,9 +174,9 @@ const player = {
     isDashing: false,
     dashTimer: 0,
     dashCooldown: 0,
-    maxDashCooldown: 1.6, // Adjusted to 1.6s
+    maxDashCooldown: 1.6,
     slashCooldown: 0,
-    maxSlashCooldown: 0.8, // Adjusted to 0.8s
+    maxSlashCooldown: 0.8,
     dashDirX: 0,
     dashDirY: 0,
     dashSpeed: 380,
@@ -291,11 +292,15 @@ function update(dt) {
     }
 
     const isBowArmed = bowJoystick.active && bowJoystick.dist > BOW_DEADZONE;
+    
+    // Updated facing logic: retains last angle when standing still
     if (isBowArmed) {
         player.angle = bowJoystick.angle;
     } else if (moveJoystick.active && (dx !== 0 || dy !== 0)) {
         player.angle = Math.atan2(dy, dx);
-    } else if (!moveJoystick.active) {
+    } else if (dx !== 0 || dy !== 0) {
+        player.angle = Math.atan2(dy, dx);
+    } else if (mouse.active && !isTouchDevice) {
         player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
     }
 
