@@ -43,6 +43,8 @@ const slashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 105, r: 24 };
 const bowBtnArea = { x: CANVAS_WIDTH - 110, y: CANVAS_HEIGHT - 45, r: 26 };
 const BOW_DEADZONE = 14;
 
+let isTouchDevice = false;
+
 function getCanvasTouchPos(touch) {
     const rect = canvas.getBoundingClientRect();
     return {
@@ -53,21 +55,25 @@ function getCanvasTouchPos(touch) {
 
 function handleTouchStart(e) {
     e.preventDefault();
+    isTouchDevice = true;
+
     for (let i = 0; i < e.changedTouches.length; i++) {
         const touch = e.changedTouches[i];
         const pos = getCanvasTouchPos(touch);
 
-        // Tap Dash / Slash
+        // Tap Dash
         if (Math.hypot(pos.x - dashBtnArea.x, pos.y - dashBtnArea.y) < dashBtnArea.r + 15) {
             performDash();
             continue;
         }
+
+        // Tap Slash
         if (Math.hypot(pos.x - slashBtnArea.x, pos.y - slashBtnArea.y) < slashBtnArea.r + 15) {
             performSlash();
             continue;
         }
 
-        // Touch ON Bow Button to start aiming
+        // Touch ON Bow Button
         if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 20 && !bowJoystick.active) {
             bowJoystick.active = true;
             bowJoystick.id = touch.identifier;
@@ -147,7 +153,9 @@ canvas.addEventListener('mousemove', e => {
     mouse.x = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
     mouse.y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
 });
+
 canvas.addEventListener('mousedown', e => {
+    if (isTouchDevice) return; // Ignores simulated mouse clicks on iPad touch
     if (e.button === 2) performBow(player.angle);
     else performSlash();
 });
@@ -165,9 +173,9 @@ const player = {
     isDashing: false,
     dashTimer: 0,
     dashCooldown: 0,
-    maxDashCooldown: 1.0, // Set Dash Cooldown (in seconds)
+    maxDashCooldown: 1.5, // Hard 1.5s Cooldown for Dash
     slashCooldown: 0,
-    maxSlashCooldown: 0.45, // Set Slash Cooldown (in seconds)
+    maxSlashCooldown: 0.6, // Hard 0.6s Cooldown for Slash
     dashDirX: 0,
     dashDirY: 0,
     dashSpeed: 380,
@@ -186,7 +194,9 @@ const turrets = [
 ];
 
 function performDash() {
+    // STRICT COOLDOWN CHECK
     if (player.dashCooldown > 0 || player.isDashing) return;
+
     player.isDashing = true;
     player.dashTimer = 0.2;
     player.dashCooldown = player.maxDashCooldown;
@@ -195,7 +205,9 @@ function performDash() {
 }
 
 function performSlash() {
-    if (player.slashCooldown > 0 || slashes.length > 0) return;
+    // STRICT COOLDOWN CHECK
+    if (player.slashCooldown > 0) return;
+
     player.slashCooldown = player.maxSlashCooldown;
     slashes.push({
         x: player.x,
@@ -246,9 +258,16 @@ const guidingLight = {
 };
 
 function update(dt) {
-    // Cooldown Timers
-    if (player.dashCooldown > 0) player.dashCooldown -= dt;
-    if (player.slashCooldown > 0) player.slashCooldown -= dt;
+    // Update Cooldown Timers
+    if (player.dashCooldown > 0) {
+        player.dashCooldown -= dt;
+        if (player.dashCooldown < 0) player.dashCooldown = 0;
+    }
+
+    if (player.slashCooldown > 0) {
+        player.slashCooldown -= dt;
+        if (player.slashCooldown < 0) player.slashCooldown = 0;
+    }
 
     let dx = 0;
     let dy = 0;
@@ -582,7 +601,7 @@ function draw() {
         // DASH COOLDOWN OVERLAY
         if (player.dashCooldown > 0) {
             const ratio = player.dashCooldown / player.maxDashCooldown;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.beginPath();
             ctx.moveTo(dashBtnArea.x, dashBtnArea.y);
             ctx.arc(dashBtnArea.x, dashBtnArea.y, dashBtnArea.r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * ratio));
@@ -601,7 +620,7 @@ function draw() {
         // SLASH COOLDOWN OVERLAY
         if (player.slashCooldown > 0) {
             const ratio = player.slashCooldown / player.maxSlashCooldown;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
             ctx.beginPath();
             ctx.moveTo(slashBtnArea.x, slashBtnArea.y);
             ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * ratio));
