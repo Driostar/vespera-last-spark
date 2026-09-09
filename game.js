@@ -41,7 +41,7 @@ window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 const dashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 45, r: 24 };
 const slashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 105, r: 24 };
 const bowBtnArea = { x: CANVAS_WIDTH - 110, y: CANVAS_HEIGHT - 45, r: 26 };
-const BOW_DEADZONE = 14; // Distance needed to arm the bow; releasing inside cancels shot
+const BOW_DEADZONE = 14;
 
 function getCanvasTouchPos(touch) {
     const rect = canvas.getBoundingClientRect();
@@ -109,7 +109,6 @@ function handleTouchMove(e) {
             const dy = pos.y - bowBtnArea.y;
             bowJoystick.dist = Math.hypot(dx, dy);
 
-            // Update angle only if dragged outside the cancel/deadzone
             if (bowJoystick.dist > BOW_DEADZONE) {
                 bowJoystick.angle = Math.atan2(dy, dx);
             }
@@ -128,7 +127,6 @@ function handleTouchEnd(e) {
         }
 
         if (bowJoystick.active && touch.identifier === bowJoystick.id) {
-            // Only fire if thumb was dragged out beyond the cancel zone
             if (bowJoystick.dist > BOW_DEADZONE) {
                 performBow(bowJoystick.angle);
             }
@@ -167,6 +165,9 @@ const player = {
     isDashing: false,
     dashTimer: 0,
     dashCooldown: 0,
+    maxDashCooldown: 1.0, // Set Dash Cooldown (in seconds)
+    slashCooldown: 0,
+    maxSlashCooldown: 0.45, // Set Slash Cooldown (in seconds)
     dashDirX: 0,
     dashDirY: 0,
     dashSpeed: 380,
@@ -188,13 +189,14 @@ function performDash() {
     if (player.dashCooldown > 0 || player.isDashing) return;
     player.isDashing = true;
     player.dashTimer = 0.2;
-    player.dashCooldown = 0.5;
+    player.dashCooldown = player.maxDashCooldown;
     player.dashDirX = Math.cos(player.angle);
     player.dashDirY = Math.sin(player.angle);
 }
 
 function performSlash() {
-    if (slashes.length > 0) return;
+    if (player.slashCooldown > 0 || slashes.length > 0) return;
+    player.slashCooldown = player.maxSlashCooldown;
     slashes.push({
         x: player.x,
         y: player.y,
@@ -244,7 +246,9 @@ const guidingLight = {
 };
 
 function update(dt) {
+    // Cooldown Timers
     if (player.dashCooldown > 0) player.dashCooldown -= dt;
+    if (player.slashCooldown > 0) player.slashCooldown -= dt;
 
     let dx = 0;
     let dy = 0;
@@ -269,7 +273,6 @@ function update(dt) {
         dy *= 0.7071;
     }
 
-    // Facing angle logic
     const isBowArmed = bowJoystick.active && bowJoystick.dist > BOW_DEADZONE;
     if (isBowArmed) {
         player.angle = bowJoystick.angle;
@@ -310,7 +313,7 @@ function update(dt) {
         if (player.ghosts[i].alpha <= 0) player.ghosts.splice(i, 1);
     }
 
-    // Update Arrows with Range Limit
+    // Update Arrows
     for (let i = arrows.length - 1; i >= 0; i--) {
         const a = arrows[i];
         const stepX = a.vx * dt;
@@ -496,7 +499,7 @@ function draw() {
     ctx.fillRect(0, -3, 10, 6);
     ctx.restore();
 
-    // Aim Trajectory Line when armed
+    // Aim Line
     if (bowJoystick.active && bowJoystick.dist > BOW_DEADZONE) {
         ctx.strokeStyle = 'rgba(168, 85, 247, 0.7)';
         ctx.lineWidth = 1.5;
@@ -567,24 +570,46 @@ function draw() {
             ctx.fill();
         }
 
-        // DASH
-        ctx.fillStyle = 'rgba(120, 220, 255, 0.35)';
-        ctx.strokeStyle = 'rgba(120, 220, 255, 0.9)';
+        // DASH BUTTON
+        ctx.fillStyle = player.dashCooldown > 0 ? 'rgba(120, 220, 255, 0.15)' : 'rgba(120, 220, 255, 0.35)';
+        ctx.strokeStyle = player.dashCooldown > 0 ? 'rgba(120, 220, 255, 0.3)' : 'rgba(120, 220, 255, 0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(dashBtnArea.x, dashBtnArea.y, dashBtnArea.r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 3);
 
-        // SLASH
-        ctx.fillStyle = 'rgba(72, 239, 173, 0.35)';
-        ctx.strokeStyle = 'rgba(72, 239, 173, 0.9)';
+        // DASH COOLDOWN OVERLAY
+        if (player.dashCooldown > 0) {
+            const ratio = player.dashCooldown / player.maxDashCooldown;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.beginPath();
+            ctx.moveTo(dashBtnArea.x, dashBtnArea.y);
+            ctx.arc(dashBtnArea.x, dashBtnArea.y, dashBtnArea.r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * ratio));
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // SLASH BUTTON
+        ctx.fillStyle = player.slashCooldown > 0 ? 'rgba(72, 239, 173, 0.15)' : 'rgba(72, 239, 173, 0.35)';
+        ctx.strokeStyle = player.slashCooldown > 0 ? 'rgba(72, 239, 173, 0.3)' : 'rgba(72, 239, 173, 0.9)';
         ctx.beginPath(); ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 3);
 
-        // BOW
+        // SLASH COOLDOWN OVERLAY
+        if (player.slashCooldown > 0) {
+            const ratio = player.slashCooldown / player.maxSlashCooldown;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.beginPath();
+            ctx.moveTo(slashBtnArea.x, slashBtnArea.y);
+            ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * ratio));
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // BOW BUTTON
         const inCancelZone = bowJoystick.active && bowJoystick.dist <= BOW_DEADZONE;
         ctx.fillStyle = inCancelZone ? 'rgba(255, 71, 87, 0.45)' : (bowJoystick.active ? 'rgba(168, 85, 247, 0.65)' : 'rgba(168, 85, 247, 0.35)');
         ctx.strokeStyle = inCancelZone ? '#ff4757' : 'rgba(168, 85, 247, 0.9)';
@@ -594,13 +619,11 @@ function draw() {
         ctx.fillText(inCancelZone ? 'CANCEL' : 'BOW', bowBtnArea.x, bowBtnArea.y + 3);
 
         if (bowJoystick.active) {
-            // Outer Deadzone Ring
             ctx.strokeStyle = inCancelZone ? 'rgba(255, 71, 87, 0.6)' : 'rgba(168, 85, 247, 0.8)';
             ctx.beginPath();
             ctx.arc(bowBtnArea.x, bowBtnArea.y, BOW_DEADZONE, 0, Math.PI * 2);
             ctx.stroke();
 
-            // Drag Nub
             ctx.fillStyle = inCancelZone ? '#ff4757' : '#ffffff';
             ctx.beginPath();
             ctx.arc(bowJoystick.dragX, bowJoystick.dragY, 8, 0, Math.PI * 2);
