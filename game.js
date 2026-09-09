@@ -27,7 +27,7 @@ resizeCanvas();
 const keys = {};
 const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
 
-// Joysticks
+// Joysticks & Touch Locks
 const moveJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
 const bowJoystick = { active: false, id: null, angle: 0, dragX: 0, dragY: 0, dist: 0 };
 
@@ -37,7 +37,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-// Right Side UI Cluster
+// UI Buttons
 const dashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 45, r: 24 };
 const slashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 105, r: 24 };
 const bowBtnArea = { x: CANVAS_WIDTH - 110, y: CANVAS_HEIGHT - 45, r: 26 };
@@ -73,7 +73,7 @@ function handleTouchStart(e) {
             continue;
         }
 
-        // Touch ON Bow Button
+        // Touch Bow Button
         if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 20 && !bowJoystick.active) {
             bowJoystick.active = true;
             bowJoystick.id = touch.identifier;
@@ -84,7 +84,7 @@ function handleTouchStart(e) {
             continue;
         }
 
-        // Left Half Touch = Move Joystick
+        // Left Half = Move
         if (pos.x < CANVAS_WIDTH / 2 && !moveJoystick.active) {
             moveJoystick.active = true;
             moveJoystick.id = touch.identifier;
@@ -155,7 +155,7 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mousedown', e => {
-    if (isTouchDevice) return; // Ignores simulated mouse clicks on iPad touch
+    if (isTouchDevice) return;
     if (e.button === 2) performBow(player.angle);
     else performSlash();
 });
@@ -173,9 +173,9 @@ const player = {
     isDashing: false,
     dashTimer: 0,
     dashCooldown: 0,
-    maxDashCooldown: 1.5, // Hard 1.5s Cooldown for Dash
+    maxDashCooldown: 2.0, // 2-second dodge cooldown
     slashCooldown: 0,
-    maxSlashCooldown: 0.6, // Hard 0.6s Cooldown for Slash
+    maxSlashCooldown: 1.0, // 1-second attack cooldown
     dashDirX: 0,
     dashDirY: 0,
     dashSpeed: 380,
@@ -194,7 +194,6 @@ const turrets = [
 ];
 
 function performDash() {
-    // STRICT COOLDOWN CHECK
     if (player.dashCooldown > 0 || player.isDashing) return;
 
     player.isDashing = true;
@@ -205,7 +204,6 @@ function performDash() {
 }
 
 function performSlash() {
-    // STRICT COOLDOWN CHECK
     if (player.slashCooldown > 0) return;
 
     player.slashCooldown = player.maxSlashCooldown;
@@ -258,7 +256,7 @@ const guidingLight = {
 };
 
 function update(dt) {
-    // Update Cooldown Timers
+    // Timers Decrement
     if (player.dashCooldown > 0) {
         player.dashCooldown -= dt;
         if (player.dashCooldown < 0) player.dashCooldown = 0;
@@ -598,10 +596,10 @@ function draw() {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 3);
 
-        // DASH COOLDOWN OVERLAY
+        // DASH COOLDOWN OVERLAY (2s)
         if (player.dashCooldown > 0) {
             const ratio = player.dashCooldown / player.maxDashCooldown;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
             ctx.beginPath();
             ctx.moveTo(dashBtnArea.x, dashBtnArea.y);
             ctx.arc(dashBtnArea.x, dashBtnArea.y, dashBtnArea.r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * ratio));
@@ -617,10 +615,10 @@ function draw() {
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 3);
 
-        // SLASH COOLDOWN OVERLAY
+        // SLASH COOLDOWN OVERLAY (1s)
         if (player.slashCooldown > 0) {
             const ratio = player.slashCooldown / player.maxSlashCooldown;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
             ctx.beginPath();
             ctx.moveTo(slashBtnArea.x, slashBtnArea.y);
             ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * ratio));
