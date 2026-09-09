@@ -25,9 +25,11 @@ resizeCanvas();
 
 // Inputs
 const keys = {};
-const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, down: false };
+const mouse = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
 const touchJoystick = { active: false, id: null, startX: 0, startY: 0, moveX: 0, moveY: 0 };
-const touchButtons = { dash: false, slash: false };
+
+// Always show touch controls on mobile/tablets
+const isMobileOrTablet = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
 window.addEventListener('keydown', e => {
     keys[e.key.toLowerCase()] = true;
@@ -35,23 +37,11 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-canvas.addEventListener('mousemove', e => {
-    const rect = canvas.getBoundingClientRect();
-    mouse.x = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
-    mouse.y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
-});
+// Action Button Locations
+const dashBtnArea = { x: CANVAS_WIDTH - 70, y: CANVAS_HEIGHT - 60, r: 28 };
+const slashBtnArea = { x: CANVAS_WIDTH - 60, y: CANVAS_HEIGHT - 130, r: 28 };
 
-canvas.addEventListener('mousedown', e => {
-    mouse.down = true;
-    performSlash();
-});
-canvas.addEventListener('mouseup', () => mouse.down = false);
-
-// Touch Handling (Multi-touch support for joystick + buttons)
-const dashBtnArea = { x: CANVAS_WIDTH - 70, y: CANVAS_HEIGHT - 60, r: 25 };
-const slashBtnArea = { x: CANVAS_WIDTH - 60, y: CANVAS_HEIGHT - 120, r: 25 };
-
-canvas.addEventListener('touchstart', e => {
+function handleTouchStart(e) {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     for (let i = 0; i < e.changedTouches.length; i++) {
@@ -60,16 +50,16 @@ canvas.addEventListener('touchstart', e => {
         const ty = (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
 
         // Check Dash Button
-        if (Math.hypot(tx - dashBtnArea.x, ty - dashBtnArea.y) < dashBtnArea.r + 10) {
+        if (Math.hypot(tx - dashBtnArea.x, ty - dashBtnArea.y) < dashBtnArea.r + 15) {
             performDash();
             continue;
         }
         // Check Slash Button
-        if (Math.hypot(tx - slashBtnArea.x, ty - slashBtnArea.y) < slashBtnArea.r + 10) {
+        if (Math.hypot(tx - slashBtnArea.x, ty - slashBtnArea.y) < slashBtnArea.r + 15) {
             performSlash();
             continue;
         }
-        // Left side joystick touch
+        // Left side movement joystick
         if (tx < CANVAS_WIDTH / 2 && !touchJoystick.active) {
             touchJoystick.active = true;
             touchJoystick.id = touch.identifier;
@@ -79,9 +69,9 @@ canvas.addEventListener('touchstart', e => {
             touchJoystick.moveY = ty;
         }
     }
-}, { passive: false });
+}
 
-canvas.addEventListener('touchmove', e => {
+function handleTouchMove(e) {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     for (let i = 0; i < e.changedTouches.length; i++) {
@@ -91,9 +81,9 @@ canvas.addEventListener('touchmove', e => {
             touchJoystick.moveY = (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
         }
     }
-}, { passive: false });
+}
 
-canvas.addEventListener('touchend', e => {
+function handleTouchEnd(e) {
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
         if (touchJoystick.active && e.changedTouches[i].identifier === touchJoystick.id) {
@@ -101,7 +91,21 @@ canvas.addEventListener('touchend', e => {
             touchJoystick.id = null;
         }
     }
-}, { passive: false });
+}
+
+// Attach Touch Listeners directly
+canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+
+// Mouse fallback
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
+    mouse.y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+});
+canvas.addEventListener('mousedown', () => performSlash());
 
 // Player State
 const player = {
@@ -110,7 +114,6 @@ const player = {
     size: 16,
     speed: 130,
     angle: 0,
-    // Dash State
     isDashing: false,
     dashTimer: 0,
     dashCooldown: 0,
@@ -120,29 +123,26 @@ const player = {
     ghosts: []
 };
 
-// Attack Effects
 const slashes = [];
 
 function performDash() {
     if (player.dashCooldown > 0 || player.isDashing) return;
     player.isDashing = true;
-    player.dashTimer = 0.2; // 0.2 second dash burst
-    player.dashCooldown = 0.6; // Cooldown before next dash
+    player.dashTimer = 0.2;
+    player.dashCooldown = 0.5;
 
-    // Dash in facing or movement direction
     player.dashDirX = Math.cos(player.angle);
     player.dashDirY = Math.sin(player.angle);
 }
 
 function performSlash() {
-    // Prevent spamming
     if (slashes.length > 0) return;
     slashes.push({
         x: player.x,
         y: player.y,
         angle: player.angle,
-        radius: 35,
-        life: 0.15, // Duration of slash visual arc
+        radius: 38,
+        life: 0.15,
         maxLife: 0.15
     });
 }
@@ -156,7 +156,6 @@ const guidingLight = {
 };
 
 function update(dt) {
-    // Cooldown timers
     if (player.dashCooldown > 0) player.dashCooldown -= dt;
 
     let dx = 0;
@@ -182,20 +181,16 @@ function update(dt) {
         dy *= 0.7071;
     }
 
-    // Facing direction update
     if (touchJoystick.active && (dx !== 0 || dy !== 0)) {
         player.angle = Math.atan2(dy, dx);
     } else if (!touchJoystick.active) {
         player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
     }
 
-    // Handle Movement or Dash
     if (player.isDashing) {
         player.dashTimer -= dt;
         player.x += player.dashDirX * player.dashSpeed * dt;
         player.y += player.dashDirY * player.dashSpeed * dt;
-
-        // Leave phantom dash trail
         player.ghosts.push({ x: player.x, y: player.y, angle: player.angle, alpha: 0.6 });
 
         if (player.dashTimer <= 0) player.isDashing = false;
@@ -204,23 +199,19 @@ function update(dt) {
         player.y += dy * player.speed * dt;
     }
 
-    // Keep player in arena bounds
     player.x = Math.max(player.size, Math.min(CANVAS_WIDTH - player.size, player.x));
     player.y = Math.max(player.size, Math.min(CANVAS_HEIGHT - player.size, player.y));
 
-    // Fade dash ghost trail
     for (let i = player.ghosts.length - 1; i >= 0; i--) {
         player.ghosts[i].alpha -= dt * 3;
         if (player.ghosts[i].alpha <= 0) player.ghosts.splice(i, 1);
     }
 
-    // Update Slashes
     for (let i = slashes.length - 1; i >= 0; i--) {
         slashes[i].life -= dt;
         if (slashes[i].life <= 0) slashes.splice(i, 1);
     }
 
-    // Guiding Light floating logic
     guidingLight.pulse += dt * 4;
     const floatOffsetX = Math.cos(guidingLight.pulse) * 12;
     const floatOffsetY = Math.sin(guidingLight.pulse) * 12;
@@ -233,11 +224,9 @@ function update(dt) {
 }
 
 function draw() {
-    // Clear Background
     ctx.fillStyle = '#11141c';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Floor Grid
     ctx.strokeStyle = '#1d2230';
     ctx.lineWidth = 1;
     for (let x = 0; x < CANVAS_WIDTH; x += 32) {
@@ -247,7 +236,7 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.stroke();
     }
 
-    // Draw Dash Trail Ghosts
+    // Ghost trails
     player.ghosts.forEach(g => {
         ctx.save();
         ctx.translate(g.x, g.y);
@@ -259,7 +248,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Draw Player Body
+    // Draw Player
     ctx.save();
     ctx.translate(player.x, player.y);
     ctx.rotate(player.angle);
@@ -269,12 +258,11 @@ function draw() {
     ctx.arc(0, 0, player.size / 2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Facing weapon notch
     ctx.fillStyle = '#4a5568';
     ctx.fillRect(0, -3, 10, 6);
     ctx.restore();
 
-    // Draw Sword Slash Arc
+    // Draw Sword Slash
     slashes.forEach(s => {
         ctx.save();
         ctx.translate(s.x, s.y);
@@ -309,44 +297,44 @@ function draw() {
     ctx.arc(guidingLight.x, guidingLight.y, 3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Mobile Action UI Overlay
-    // Left Movement Joystick
-    if (touchJoystick.active) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    // ALWAYS RENDER TOUCH UI ON TOUCH-CAPABLE DEVICES
+    if (isMobileOrTablet) {
+        // Left Joystick area indicator
+        if (touchJoystick.active) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(touchJoystick.startX, touchJoystick.startY, 32, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.beginPath();
+            ctx.arc(touchJoystick.moveX, touchJoystick.moveY, 14, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Action Buttons (Permanent on iPad/Mobile)
+        ctx.fillStyle = 'rgba(120, 220, 255, 0.3)';
+        ctx.strokeStyle = 'rgba(120, 220, 255, 0.8)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(touchJoystick.startX, touchJoystick.startY, 30, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.beginPath();
-        ctx.arc(touchJoystick.moveX, touchJoystick.moveY, 12, 0, Math.PI * 2);
+        ctx.arc(dashBtnArea.x, dashBtnArea.y, dashBtnArea.r, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 4);
+
+        ctx.fillStyle = 'rgba(72, 239, 173, 0.3)';
+        ctx.strokeStyle = 'rgba(72, 239, 173, 0.8)';
+        ctx.beginPath();
+        ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 4);
     }
-
-    // Right Action Buttons
-    // Dash Button
-    ctx.fillStyle = 'rgba(120, 220, 255, 0.25)';
-    ctx.strokeStyle = 'rgba(120, 220, 255, 0.6)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(dashBtnArea.x, dashBtnArea.y, dashBtnArea.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 3);
-
-    // Slash Button
-    ctx.fillStyle = 'rgba(72, 239, 173, 0.25)';
-    ctx.strokeStyle = 'rgba(72, 239, 173, 0.6)';
-    ctx.beginPath();
-    ctx.arc(slashBtnArea.x, slashBtnArea.y, slashBtnArea.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 3);
 }
 
 function gameLoop(timestamp) {
