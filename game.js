@@ -5,7 +5,7 @@ let lastTime = 0;
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 450;
 
-// World Size (Larger than the screen for camera exploration)
+// World Size
 const WORLD_WIDTH = 1600;
 const WORLD_HEIGHT = 900;
 
@@ -14,11 +14,8 @@ const camera = {
     x: 0,
     y: 0,
     update(targetX, targetY) {
-        // Smoothly glide camera toward player center
         this.x += (targetX - CANVAS_WIDTH / 2 - this.x) * 0.1;
         this.y += (targetY - CANVAS_HEIGHT / 2 - this.y) * 0.1;
-        
-        // Clamp camera to world boundaries
         this.x = Math.max(0, Math.min(WORLD_WIDTH - CANVAS_WIDTH, this.x));
         this.y = Math.max(0, Math.min(WORLD_HEIGHT - CANVAS_HEIGHT, this.y));
     }
@@ -178,7 +175,6 @@ canvas.addEventListener('mousemove', e => {
     const screenX = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
     const screenY = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
     
-    // Convert screen mouse to world mouse coordinates
     mouse.x = screenX + camera.x;
     mouse.y = screenY + camera.y;
     
@@ -196,11 +192,21 @@ canvas.addEventListener('mousedown', e => {
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-// Player State (Starts in the middle of the large world)
+// Solid Dungeon Walls & Pillars (Obstacles)
+const walls = [
+    // Outer boundaries / border walls (handled by world bounds, but let's add interior pillars & partitions)
+    { x: 400, y: 200, w: 60, h: 160 },
+    { x: 1000, y: 200, w: 60, h: 160 },
+    { x: 700, y: 550, w: 200, h: 60 },
+    { x: 300, y: 650, w: 100, h: 100 },
+    { x: 1200, y: 600, w: 120, h: 80 }
+];
+
+// Player State
 const player = {
     x: WORLD_WIDTH / 2,
     y: WORLD_HEIGHT / 2,
-    size: 16,
+    size: 14,
     speed: 130,
     angle: 0,
     energy: 100,
@@ -222,12 +228,21 @@ const arrows = [];
 const particles = [];
 const projectiles = [];
 
-// Turrets spread out across the larger world map
+// Turrets
 const turrets = [
-    { x: 500, y: 300, hp: 4, maxHp: 4, shootTimer: 2, range: 320, hitFlash: 0 },
-    { x: 1200, y: 300, hp: 4, maxHp: 4, shootTimer: 3, range: 320, hitFlash: 0 },
-    { x: 900, y: 700, hp: 4, maxHp: 4, shootTimer: 2.5, range: 320, hitFlash: 0 }
+    { x: 500, y: 120, hp: 4, maxHp: 4, shootTimer: 2, range: 320, hitFlash: 0 },
+    { x: 1100, y: 120, hp: 4, maxHp: 4, shootTimer: 3, range: 320, hitFlash: 0 },
+    { x: 900, y: 750, hp: 4, maxHp: 4, shootTimer: 2.5, range: 320, hitFlash: 0 }
 ];
+
+// Collision helper function (Circle vs Box)
+function checkCircleRectCollision(cx, cy, cr, rx, ry, rw, rh) {
+    let closestX = Math.max(rx, Math.min(cx, rx + rw));
+    let closestY = Math.max(ry, Math.min(cy, ry + rh));
+    let distX = cx - closestX;
+    let distY = cy - closestY;
+    return (distX * distX + distY * distY) < (cr * cr);
+}
 
 function performDash() {
     if (player.dashCooldown > 0 || player.isDashing) return;
@@ -346,24 +361,38 @@ function update(dt) {
         player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
     }
 
+    const moveSpeed = isBowArmed ? player.speed * 0.7 : player.speed;
+
     if (player.isDashing) {
         player.dashTimer -= dt;
-        player.x += player.dashDirX * player.dashSpeed * dt;
-        player.y += player.dashDirY * player.dashSpeed * dt;
-        player.ghosts.push({ x: player.x, y: player.y, angle: player.angle, alpha: 0.6 });
+        
+        // Move with wall collision checks during dash
+        let nextX = player.x + player.dashDirX * player.dashSpeed * dt;
+        let nextY = player.y + player.dashDirY * player.dashSpeed * dt;
+        
+        let collideX = walls.some(w => checkCircleRectCollision(nextX, player.y, player.size, w.x, w.y, w.w, w.h));
+        let collideY = walls.some(w => checkCircleRectCollision(player.x, nextY, player.size, w.x, w.y, w.w, w.h));
 
+        if (!collideX) player.x = nextX;
+        if (!collideY) player.y = nextY;
+
+        player.ghosts.push({ x: player.x, y: player.y, angle: player.angle, alpha: 0.6 });
         if (player.dashTimer <= 0) player.isDashing = false;
     } else {
-        const moveSpeed = isBowArmed ? player.speed * 0.7 : player.speed;
-        player.x += dx * moveSpeed * dt;
-        player.y += dy * moveSpeed * dt;
+        // Separate Axis Movement for smooth sliding against walls
+        let nextX = player.x + dx * moveSpeed * dt;
+        let collideX = walls.some(w => checkCircleRectCollision(nextX, player.y, player.size, w.x, w.y, w.w, w.h));
+        if (!collideX) player.x = nextX;
+
+        let nextY = player.y + dy * moveSpeed * dt;
+        let collideY = walls.some(w => checkCircleRectCollision(player.x, nextY, player.size, w.x, w.y, w.w, w.h));
+        if (!collideY) player.y = nextY;
     }
 
-    // Clamp player within world bounds
+    // Clamp within world bounds
     player.x = Math.max(player.size, Math.min(WORLD_WIDTH - player.size, player.x));
     player.y = Math.max(player.size, Math.min(WORLD_HEIGHT - player.size, player.y));
 
-    // Update Camera to follow player
     camera.update(player.x, player.y);
 
     // Update Particles
@@ -375,7 +404,6 @@ function update(dt) {
         if (p.life <= 0) particles.splice(i, 1);
     }
 
-    // Update Ghosts
     for (let i = player.ghosts.length - 1; i >= 0; i--) {
         player.ghosts[i].alpha -= dt * 3;
         if (player.ghosts[i].alpha <= 0) player.ghosts.splice(i, 1);
@@ -385,7 +413,7 @@ function update(dt) {
         if (t.hitFlash > 0) t.hitFlash -= dt;
     });
 
-    // Update Arrows
+    // Update Arrows & Wall Collisions
     for (let i = arrows.length - 1; i >= 0; i--) {
         const a = arrows[i];
         const stepX = a.vx * dt;
@@ -396,6 +424,13 @@ function update(dt) {
         a.distTraveled += Math.hypot(stepX, stepY);
 
         let hit = false;
+        
+        // Check wall collision for arrows
+        if (walls.some(w => a.x >= w.x && a.x <= w.x + w.w && a.y >= w.y && a.y <= w.y + w.h)) {
+            createEmberParticles(a.x, a.y, '#78dcff', 6);
+            hit = true;
+        }
+
         turrets.forEach(t => {
             if (t.hp > 0 && Math.hypot(a.x - t.x, a.y - t.y) < 20) {
                 t.hp -= 2;
@@ -435,7 +470,7 @@ function update(dt) {
         if (s.life <= 0) slashes.splice(i, 1);
     }
 
-    // Update Turrets Attack Behavior
+    // Turret Attack Behavior
     turrets.forEach(t => {
         if (t.hp > 0) {
             const distToPlayer = Math.hypot(player.x - t.x, player.y - t.y);
@@ -456,12 +491,18 @@ function update(dt) {
         }
     });
 
-    // Update Projectiles
+    // Update Projectiles & Wall Collisions
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
         p.life -= dt;
         p.x += p.vx * dt;
         p.y += p.vy * dt;
+
+        // Check wall collision for enemy projectiles
+        if (walls.some(w => p.x >= w.x && p.x <= w.x + w.w && p.y >= w.y && p.y <= w.y + w.h)) {
+            projectiles.splice(i, 1);
+            continue;
+        }
 
         if (!player.isDashing) {
             const dist = Math.hypot(p.x - player.x, p.y - player.y);
@@ -497,7 +538,6 @@ function update(dt) {
 function draw() {
     ctx.save();
 
-    // 1. Apply Screen Shake Offset
     if (shakeTimer > 0) {
         const offsetX = (Math.random() - 0.5) * shakeIntensity * 2;
         const offsetY = (Math.random() - 0.5) * shakeIntensity * 2;
@@ -507,11 +547,10 @@ function draw() {
     ctx.fillStyle = '#11141c';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // 2. Apply Camera Translation Matrix
     ctx.save();
     ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
 
-    // World Grid Floor across the larger map space
+    // World Grid Floor
     ctx.strokeStyle = '#1d2230';
     ctx.lineWidth = 1;
     for (let x = 0; x <= WORLD_WIDTH; x += 32) {
@@ -521,7 +560,21 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke();
     }
 
-    // Draw World Border indicator
+    // Draw Dungeon Walls & Pillars
+    walls.forEach(w => {
+        ctx.fillStyle = '#1f293d';
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(w.x, w.y, w.w, w.h);
+        
+        // Mossy accent dots
+        ctx.fillStyle = '#10b981';
+        ctx.fillRect(w.x + 4, w.y + 4, 6, 6);
+        ctx.fillRect(w.x + w.w - 10, w.y + w.h - 10, 6, 6);
+    });
+
+    // World Border
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 4;
     ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
@@ -575,7 +628,7 @@ function draw() {
         ctx.rotate(g.angle);
         ctx.fillStyle = `rgba(120, 220, 255, ${g.alpha * 0.4})`;
         ctx.beginPath();
-        ctx.arc(0, 0, player.size / 2, 0, Math.PI * 2);
+        ctx.arc(0, 0, player.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
     });
@@ -587,7 +640,7 @@ function draw() {
 
     ctx.fillStyle = player.isDashing ? '#78dcff' : '#2d3748';
     ctx.beginPath();
-    ctx.arc(0, 0, player.size / 2, 0, Math.PI * 2);
+    ctx.arc(0, 0, player.size, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = '#4a5568';
@@ -622,7 +675,7 @@ function draw() {
         ctx.restore();
     });
 
-    // Companion Spirit (Torch light source)
+    // Companion Spirit Torch
     const glowGradient = ctx.createRadialGradient(
         guidingLight.x, guidingLight.y, 1,
         guidingLight.x, guidingLight.y, 24
@@ -642,10 +695,10 @@ function draw() {
     ctx.arc(guidingLight.x, guidingLight.y, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.restore(); // Restore Camera Matrix
-    ctx.restore(); // Restore Screen Shake Matrix
+    ctx.restore();
+    ctx.restore();
 
-    // 3. HUD Elements (Fixed to Screen Space - Unaffected by Camera)
+    // HUD Elements
     ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
     ctx.fillRect(15, 15, 120, 12);
     ctx.fillStyle = '#78dcff';
