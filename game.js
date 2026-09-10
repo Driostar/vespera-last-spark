@@ -5,6 +5,25 @@ let lastTime = 0;
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 450;
 
+// World Size (Larger than the screen for camera exploration)
+const WORLD_WIDTH = 1600;
+const WORLD_HEIGHT = 900;
+
+// Camera State
+const camera = {
+    x: 0,
+    y: 0,
+    update(targetX, targetY) {
+        // Smoothly glide camera toward player center
+        this.x += (targetX - CANVAS_WIDTH / 2 - this.x) * 0.1;
+        this.y += (targetY - CANVAS_HEIGHT / 2 - this.y) * 0.1;
+        
+        // Clamp camera to world boundaries
+        this.x = Math.max(0, Math.min(WORLD_WIDTH - CANVAS_WIDTH, this.x));
+        this.y = Math.max(0, Math.min(WORLD_HEIGHT - CANVAS_HEIGHT, this.y));
+    }
+};
+
 // Screen Shake State
 let shakeTimer = 0;
 let shakeIntensity = 0;
@@ -47,7 +66,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-// UI Buttons
+// UI Buttons (Fixed to Screen Space)
 const dashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 45, r: 24 };
 const slashBtnArea = { x: CANVAS_WIDTH - 50, y: CANVAS_HEIGHT - 105, r: 24 };
 const bowBtnArea = { x: CANVAS_WIDTH - 110, y: CANVAS_HEIGHT - 45, r: 26 };
@@ -71,19 +90,16 @@ function handleTouchStart(e) {
         const touch = e.changedTouches[i];
         const pos = getCanvasTouchPos(touch);
 
-        // Tap Dash
         if (Math.hypot(pos.x - dashBtnArea.x, pos.y - dashBtnArea.y) < dashBtnArea.r + 15) {
             performDash();
             continue;
         }
 
-        // Tap Slash
         if (Math.hypot(pos.x - slashBtnArea.x, pos.y - slashBtnArea.y) < slashBtnArea.r + 15) {
             performSlash();
             continue;
         }
 
-        // Touch Bow Button
         if (Math.hypot(pos.x - bowBtnArea.x, pos.y - bowBtnArea.y) < bowBtnArea.r + 20 && !bowJoystick.active) {
             bowJoystick.active = true;
             bowJoystick.id = touch.identifier;
@@ -94,7 +110,6 @@ function handleTouchStart(e) {
             continue;
         }
 
-        // Left Half = Move
         if (pos.x < CANVAS_WIDTH / 2 && !moveJoystick.active) {
             moveJoystick.active = true;
             moveJoystick.id = touch.identifier;
@@ -160,8 +175,12 @@ canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
 canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
-    mouse.x = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
-    mouse.y = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+    const screenX = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
+    const screenY = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+    
+    // Convert screen mouse to world mouse coordinates
+    mouse.x = screenX + camera.x;
+    mouse.y = screenY + camera.y;
     
     mouse.isMoving = true;
     clearTimeout(mouseTimeout);
@@ -177,10 +196,10 @@ canvas.addEventListener('mousedown', e => {
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-// Player State
+// Player State (Starts in the middle of the large world)
 const player = {
-    x: 150,
-    y: CANVAS_HEIGHT / 2,
+    x: WORLD_WIDTH / 2,
+    y: WORLD_HEIGHT / 2,
     size: 16,
     speed: 130,
     angle: 0,
@@ -203,10 +222,11 @@ const arrows = [];
 const particles = [];
 const projectiles = [];
 
-// Rune-Sentry Turrets with hit flash feedback
+// Turrets spread out across the larger world map
 const turrets = [
-    { x: 620, y: 140, hp: 4, maxHp: 4, shootTimer: 2, range: 320, hitFlash: 0 },
-    { x: 620, y: 310, hp: 4, maxHp: 4, shootTimer: 3, range: 320, hitFlash: 0 }
+    { x: 500, y: 300, hp: 4, maxHp: 4, shootTimer: 2, range: 320, hitFlash: 0 },
+    { x: 1200, y: 300, hp: 4, maxHp: 4, shootTimer: 3, range: 320, hitFlash: 0 },
+    { x: 900, y: 700, hp: 4, maxHp: 4, shootTimer: 2.5, range: 320, hitFlash: 0 }
 ];
 
 function performDash() {
@@ -218,7 +238,7 @@ function performDash() {
     player.dashDirX = Math.cos(player.angle);
     player.dashDirY = Math.sin(player.angle);
     
-    triggerShake(0.15, 4); // Screen shake on dash
+    triggerShake(0.15, 4);
     createEmberParticles(player.x, player.y, '#78dcff', 12);
 }
 
@@ -235,7 +255,7 @@ function performSlash() {
         maxLife: 0.15
     });
 
-    triggerShake(0.1, 3); // Subtle screen shake on swing
+    triggerShake(0.1, 3);
 }
 
 function performBow(shootAngle) {
@@ -270,21 +290,19 @@ function createEmberParticles(x, y, color, count = 8) {
 }
 
 const guidingLight = {
-    x: 170,
-    y: CANVAS_HEIGHT / 2 - 20,
-    targetX: 150,
-    targetY: CANVAS_HEIGHT / 2,
+    x: WORLD_WIDTH / 2 + 20,
+    y: WORLD_HEIGHT / 2 - 20,
+    targetX: WORLD_WIDTH / 2,
+    targetY: WORLD_HEIGHT / 2,
     pulse: 0
 };
 
 function update(dt) {
-    // Update Screen Shake Timer
     if (shakeTimer > 0) {
         shakeTimer -= dt;
         if (shakeTimer < 0) shakeTimer = 0;
     }
 
-    // Timers Decrement
     if (player.dashCooldown > 0) {
         player.dashCooldown -= dt;
         if (player.dashCooldown < 0) player.dashCooldown = 0;
@@ -322,8 +340,6 @@ function update(dt) {
     
     if (isBowArmed) {
         player.angle = bowJoystick.angle;
-    } else if (moveJoystick.active && (dx !== 0 || dy !== 0)) {
-        player.angle = Math.atan2(dy, dx);
     } else if (dx !== 0 || dy !== 0) {
         player.angle = Math.atan2(dy, dx);
     } else if (mouse.isMoving && !isTouchDevice) {
@@ -343,8 +359,12 @@ function update(dt) {
         player.y += dy * moveSpeed * dt;
     }
 
-    player.x = Math.max(player.size, Math.min(CANVAS_WIDTH - player.size, player.x));
-    player.y = Math.max(player.size, Math.min(CANVAS_HEIGHT - player.size, player.y));
+    // Clamp player within world bounds
+    player.x = Math.max(player.size, Math.min(WORLD_WIDTH - player.size, player.x));
+    player.y = Math.max(player.size, Math.min(WORLD_HEIGHT - player.size, player.y));
+
+    // Update Camera to follow player
+    camera.update(player.x, player.y);
 
     // Update Particles
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -361,7 +381,6 @@ function update(dt) {
         if (player.ghosts[i].alpha <= 0) player.ghosts.splice(i, 1);
     }
 
-    // Update Turrets & Hit Flash
     turrets.forEach(t => {
         if (t.hitFlash > 0) t.hitFlash -= dt;
     });
@@ -380,7 +399,7 @@ function update(dt) {
         turrets.forEach(t => {
             if (t.hp > 0 && Math.hypot(a.x - t.x, a.y - t.y) < 20) {
                 t.hp -= 2;
-                t.hitFlash = 0.15; // Flash white/pink on hit
+                t.hitFlash = 0.15;
                 triggerShake(0.12, 3);
                 createEmberParticles(t.x, t.y, '#78dcff', 10);
                 hit = true;
@@ -406,7 +425,7 @@ function update(dt) {
                 if (dist < 35) {
                     t.hp -= 1;
                     t.hitFlash = 0.15;
-                    triggerShake(0.15, 5); // Heavier shake on melee hit
+                    triggerShake(0.15, 5);
                     player.energy = Math.min(player.maxEnergy, player.energy + 25);
                     createEmberParticles(t.x, t.y, '#ff4757', 12);
                 }
@@ -447,7 +466,7 @@ function update(dt) {
         if (!player.isDashing) {
             const dist = Math.hypot(p.x - player.x, p.y - player.y);
             if (dist < player.size + 4) {
-                triggerShake(0.2, 6); // Heavy shake when player takes damage
+                triggerShake(0.2, 6);
                 createEmberParticles(player.x, player.y, '#ff4757', 14);
                 projectiles.splice(i, 1);
                 continue;
@@ -457,7 +476,7 @@ function update(dt) {
         if (p.life <= 0) projectiles.splice(i, 1);
     }
 
-    // Companion hover logic (acting as torch light)
+    // Companion hover logic
     guidingLight.pulse += dt * 3;
     const floatOffsetX = Math.cos(guidingLight.pulse) * 6;
     const floatOffsetY = Math.sin(guidingLight.pulse) * 6;
@@ -478,7 +497,7 @@ function update(dt) {
 function draw() {
     ctx.save();
 
-    // Apply Screen Shake Offset
+    // 1. Apply Screen Shake Offset
     if (shakeTimer > 0) {
         const offsetX = (Math.random() - 0.5) * shakeIntensity * 2;
         const offsetY = (Math.random() - 0.5) * shakeIntensity * 2;
@@ -488,21 +507,30 @@ function draw() {
     ctx.fillStyle = '#11141c';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Grid Floor
+    // 2. Apply Camera Translation Matrix
+    ctx.save();
+    ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
+
+    // World Grid Floor across the larger map space
     ctx.strokeStyle = '#1d2230';
     ctx.lineWidth = 1;
-    for (let x = 0; x < CANVAS_WIDTH; x += 32) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_HEIGHT); ctx.stroke();
+    for (let x = 0; x <= WORLD_WIDTH; x += 32) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke();
     }
-    for (let y = 0; y < CANVAS_HEIGHT; y += 32) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_WIDTH, y); ctx.stroke();
+    for (let y = 0; y <= WORLD_HEIGHT; y += 32) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke();
     }
+
+    // Draw World Border indicator
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
     // Particles
     particles.forEach(p => {
         ctx.fillStyle = p.color;
         ctx.globalAlpha = p.life / p.maxLife;
-        ctx.fillRect(p.x, p.y, 4, 4); // Slightly chunkier pixel particles
+        ctx.fillRect(p.x, p.y, 4, 4);
         ctx.globalAlpha = 1.0;
     });
 
@@ -600,7 +628,7 @@ function draw() {
         guidingLight.x, guidingLight.y, 24
     );
     const isArmed = bowJoystick.active && bowJoystick.dist > BOW_DEADZONE;
-    glowGradient.addColorStop(0, isArmed ? 'rgba(168, 85, 247, 0.95)' : 'rgba(255, 140, 60, 0.95)'); // Warmer torch look
+    glowGradient.addColorStop(0, isArmed ? 'rgba(168, 85, 247, 0.95)' : 'rgba(255, 140, 60, 0.95)');
     glowGradient.addColorStop(0.5, isArmed ? 'rgba(147, 51, 234, 0.4)' : 'rgba(230, 90, 20, 0.35)');
     glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
@@ -614,9 +642,10 @@ function draw() {
     ctx.arc(guidingLight.x, guidingLight.y, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.restore(); // Restore from Screen Shake
+    ctx.restore(); // Restore Camera Matrix
+    ctx.restore(); // Restore Screen Shake Matrix
 
-    // Arcane Energy Bar (HUD - unaffected by screen shake)
+    // 3. HUD Elements (Fixed to Screen Space - Unaffected by Camera)
     ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
     ctx.fillRect(15, 15, 120, 12);
     ctx.fillStyle = '#78dcff';
@@ -624,7 +653,7 @@ function draw() {
     ctx.strokeStyle = '#334155';
     ctx.strokeRect(15, 15, 120, 12);
 
-    // Touch UI Controls (unaffected by screen shake)
+    // Touch UI Controls
     if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) {
         if (moveJoystick.active) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -648,7 +677,6 @@ function draw() {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
         ctx.fillText('DASH', dashBtnArea.x, dashBtnArea.y + 3);
 
-        // DASH COOLDOWN OVERLAY (1.6s)
         if (player.dashCooldown > 0) {
             const ratio = player.dashCooldown / player.maxDashCooldown;
             ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
@@ -667,7 +695,6 @@ function draw() {
         ctx.fillStyle = '#ffffff';
         ctx.fillText('SLASH', slashBtnArea.x, slashBtnArea.y + 3);
 
-        // SLASH COOLDOWN OVERLAY (0.8s)
         if (player.slashCooldown > 0) {
             const ratio = player.slashCooldown / player.maxSlashCooldown;
             ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
