@@ -1,13 +1,2224 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ancient Game</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Sanctuary Crawler</title>
+
+<style>
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #10151b;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+  background: #18241f;
+}
+
+/* Mobile controls */
+#touchUI {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+
+.touchButton {
+  position: absolute;
+  pointer-events: auto;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,.35);
+  background: rgba(20,25,30,.65);
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: 900;
+  font-size: 13px;
+  text-shadow: 2px 2px #000;
+  box-shadow: 0 5px 0 rgba(0,0,0,.35);
+}
+
+.touchButton:active {
+  transform: scale(.92);
+}
+
+#dashBtn {
+  right: 25px;
+  bottom: 160px;
+}
+
+#slashBtn {
+  right: 110px;
+  bottom: 72px;
+}
+
+#bowBtn {
+  right: 25px;
+  bottom: 72px;
+}
+
+#joystick {
+  position: absolute;
+  left: 25px;
+  bottom: 35px;
+  width: 145px;
+  height: 145px;
+  border-radius: 50%;
+  background: rgba(20,25,30,.4);
+  border: 3px solid rgba(255,255,255,.18);
+  pointer-events: auto;
+}
+
+#stick {
+  position: absolute;
+  width: 62px;
+  height: 62px;
+  left: 41px;
+  top: 41px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.22);
+  border: 3px solid rgba(255,255,255,.3);
+}
+
+@media (pointer: coarse) {
+  #touchUI {
+    display: block;
+  }
+}
+</style>
 </head>
+
 <body>
-    <canvas id="gameCanvas"></canvas>
-    <script src="game.js"></script>
+
+<canvas id="game"></canvas>
+
+<div id="touchUI">
+  <div id="joystick">
+    <div id="stick"></div>
+  </div>
+
+  <div class="touchButton" id="dashBtn">DASH</div>
+  <div class="touchButton" id="slashBtn">SLASH</div>
+  <div class="touchButton" id="bowBtn">BOW</div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   SANCTUARY CRAWLER
+   Single-file top-down action dungeon crawler
+   ============================================================ */
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+ctx.imageSmoothingEnabled = false;
+
+let VW = 960;
+let VH = 540;
+let DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+function resize() {
+  VW = Math.max(320, window.innerWidth);
+  VH = Math.max(240, window.innerHeight);
+
+  canvas.width = Math.floor(VW * DPR);
+  canvas.height = Math.floor(VH * DPR);
+  canvas.style.width = VW + "px";
+  canvas.style.height = VH + "px";
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+
+window.addEventListener("resize", resize);
+resize();
+
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+
+const WORLD = {
+  w: 1600,
+  h: 900
+};
+
+const STATE_DUNGEON = 0;
+const STATE_VILLAGE = 1;
+const STATE_GAMEOVER = 2;
+
+let state = STATE_DUNGEON;
+let dungeonTier = 1;
+
+const TAU = Math.PI * 2;
+
+/* ============================================================
+   INPUT
+   ============================================================ */
+
+const keys = Object.create(null);
+
+window.addEventListener("keydown", e => {
+  keys[e.key.toLowerCase()] = true;
+
+  if (
+    ["arrowup","arrowdown","arrowleft","arrowright"," "].includes(e.key.toLowerCase())
+  ) {
+    e.preventDefault();
+  }
+
+  if (e.key.toLowerCase() === "r" && state === STATE_GAMEOVER) {
+    startDungeon(dungeonTier);
+  }
+
+  if (e.key.toLowerCase() === "v" && state === STATE_DUNGEON) {
+    if (enemies.length === 0) enterVillage();
+  }
+});
+
+window.addEventListener("keyup", e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+/* Mouse */
+const mouse = {
+  x: VW / 2,
+  y: VH / 2,
+  downLeft: false,
+  downRight: false
+};
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - r.left;
+  mouse.y = e.clientY - r.top;
+});
+
+canvas.addEventListener("mousedown", e => {
+  if (e.button === 0) mouse.downLeft = true;
+  if (e.button === 2) mouse.downRight = true;
+});
+
+window.addEventListener("mouseup", e => {
+  if (e.button === 0) mouse.downLeft = false;
+  if (e.button === 2) mouse.downRight = false;
+});
+
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+/* ============================================================
+   TOUCH INPUT
+   ============================================================ */
+
+const touch = {
+  dx: 0,
+  dy: 0,
+  slash: false,
+  bow: false,
+  dash: false
+};
+
+const joystick = document.getElementById("joystick");
+const stick = document.getElementById("stick");
+
+let joystickPointer = null;
+
+joystick.addEventListener("pointerdown", e => {
+  joystickPointer = e.pointerId;
+  joystick.setPointerCapture(e.pointerId);
+  updateJoystick(e);
+});
+
+joystick.addEventListener("pointermove", e => {
+  if (e.pointerId === joystickPointer) updateJoystick(e);
+});
+
+joystick.addEventListener("pointerup", resetJoystick);
+joystick.addEventListener("pointercancel", resetJoystick);
+
+function updateJoystick(e) {
+  const r = joystick.getBoundingClientRect();
+
+  let x = e.clientX - (r.left + r.width / 2);
+  let y = e.clientY - (r.top + r.height / 2);
+
+  const max = 52;
+  const len = Math.hypot(x, y);
+
+  if (len > max) {
+    x = x / len * max;
+    y = y / len * max;
+  }
+
+  touch.dx = x / max;
+  touch.dy = y / max;
+
+  stick.style.transform =
+    `translate(${x}px, ${y}px)`;
+}
+
+function resetJoystick() {
+  joystickPointer = null;
+  touch.dx = 0;
+  touch.dy = 0;
+  stick.style.transform = "";
+}
+
+function bindTouchButton(id, prop) {
+  const el = document.getElementById(id);
+
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    touch[prop] = true;
+  });
+
+  el.addEventListener("pointerup", e => {
+    e.preventDefault();
+    touch[prop] = false;
+  });
+
+  el.addEventListener("pointercancel", () => {
+    touch[prop] = false;
+  });
+}
+
+bindTouchButton("dashBtn", "dash");
+bindTouchButton("slashBtn", "slash");
+bindTouchButton("bowBtn", "bow");
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function rand(a, b) {
+  return a + Math.random() * (b - a);
+}
+
+function irand(a, b) {
+  return Math.floor(rand(a, b + 1));
+}
+
+function dist(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function angleTo(a, b) {
+  return Math.atan2(b.y - a.y, b.x - a.x);
+}
+
+function circleRectCollision(cx, cy, radius, r) {
+  const px = clamp(cx, r.x, r.x + r.w);
+  const py = clamp(cy, r.y, r.y + r.h);
+
+  const dx = cx - px;
+  const dy = cy - py;
+
+  return dx * dx + dy * dy < radius * radius;
+}
+
+function circleHitsWall(obj) {
+  for (const wall of walls) {
+    if (
+      circleRectCollision(
+        obj.x,
+        obj.y,
+        obj.radius || 8,
+        wall
+      )
+    ) {
+      return wall;
+    }
+  }
+
+  return null;
+}
+
+function moveCircle(obj, dx, dy) {
+  obj.x += dx;
+
+  let wall = circleHitsWall(obj);
+
+  if (wall) {
+    if (dx > 0) obj.x = wall.x - obj.radius;
+    if (dx < 0) obj.x = wall.x + wall.w + obj.radius;
+  }
+
+  obj.y += dy;
+
+  wall = circleHitsWall(obj);
+
+  if (wall) {
+    if (dy > 0) obj.y = wall.y - obj.radius;
+    if (dy < 0) obj.y = wall.y + wall.h + obj.radius;
+  }
+
+  obj.x = clamp(obj.x, obj.radius, WORLD.w - obj.radius);
+  obj.y = clamp(obj.y, obj.radius, WORLD.h - obj.radius);
+}
+
+/* ============================================================
+   CAMERA
+   ============================================================ */
+
+const camera = {
+  x: 0,
+  y: 0,
+  shake: 0
+};
+
+function updateCamera(dt) {
+  const targetX = player.x - VW / 2;
+  const targetY = player.y - VH / 2;
+
+  camera.x = lerp(camera.x, targetX, 1 - Math.pow(.001, dt));
+  camera.y = lerp(camera.y, targetY, 1 - Math.pow(.001, dt));
+
+  camera.x = clamp(camera.x, 0, Math.max(0, WORLD.w - VW));
+  camera.y = clamp(camera.y, 0, Math.max(0, WORLD.h - VH));
+
+  camera.shake *= Math.pow(.015, dt);
+}
+
+/* ============================================================
+   PLAYER
+   ============================================================ */
+
+const player = {
+  x: 800,
+  y: 450,
+  radius: 18,
+
+  speed: 190,
+
+  hp: 100,
+  maxHp: 100,
+
+  arcane: 70,
+  maxArcane: 100,
+
+  invulnerable: 0,
+
+  dashCooldown: 0,
+  dashMax: .9,
+  dashTime: 0,
+  dashDX: 0,
+  dashDY: 0,
+
+  slashCooldown: 0,
+  bowCooldown: 0,
+
+  aim: 0,
+
+  trail: []
+};
+
+/* ============================================================
+   SPIRIT
+   ============================================================ */
+
+const spirit = {
+  angle: 0,
+  radius: 38,
+  bob: 0
+};
+
+/* ============================================================
+   WORLD
+   ============================================================ */
+
+let walls = [];
+let pillars = [];
+let enemies = [];
+let projectiles = [];
+let playerProjectiles = [];
+let particles = [];
+let fragments = [];
+
+let dungeonCleared = false;
+let villageFade = 0;
+
+function generateDungeon(tier = 1) {
+  walls = [];
+  pillars = [];
+  enemies = [];
+  projectiles = [];
+  playerProjectiles = [];
+  particles = [];
+  fragments = [];
+
+  dungeonCleared = false;
+
+  /* Outer sanctuary walls */
+  walls.push(
+    {x:0,y:0,w:WORLD.w,h:34},
+    {x:0,y:WORLD.h-34,w:WORLD.w,h:34},
+    {x:0,y:0,w:34,h:WORLD.h},
+    {x:WORLD.w-34,y:0,w:34,h:WORLD.h}
+  );
+
+  /* Chunky internal ruins */
+  const layouts = [
+    {x:230,y:170,w:250,h:38},
+    {x:1120,y:170,w:250,h:38},
+    {x:230,y:690,w:250,h:38},
+    {x:1120,y:690,w:250,h:38},
+
+    {x:180,y:310,w:38,h:270},
+    {x:1382,y:310,w:38,h:270},
+
+    {x:610,y:110,w:38,h:180},
+    {x:952,y:610,w:38,h:180},
+
+    {x:590,y:330,w:190,h:34},
+    {x:820,y:530,w:190,h:34}
+  ];
+
+  for (const r of layouts) walls.push({...r});
+
+  /* Pillars */
+  for (let i = 0; i < 25; i++) {
+    let p;
+    let tries = 0;
+
+    do {
+      p = {
+        x: rand(100, WORLD.w - 100),
+        y: rand(90, WORLD.h - 90),
+        radius: rand(15, 24)
+      };
+
+      tries++;
+    } while (
+      tries < 100 &&
+      (
+        circleRectCollision(p.x,p.y,p.radius,{
+          x:700,y:350,w:200,h:200
+        }) ||
+        circleHitsWall({
+          x:p.x,
+          y:p.y,
+          radius:p.radius
+        })
+      )
+    );
+
+    pillars.push(p);
+  }
+
+  /* Enemies */
+  const count = 7 + tier * 2;
+
+  for (let i = 0; i < count; i++) {
+    spawnEnemy();
+  }
+
+  /* Start player */
+  player.x = 800;
+  player.y = 450;
+  player.hp = player.maxHp;
+  player.arcane = 70;
+  player.invulnerable = 1;
+  player.dashCooldown = 0;
+  player.dashTime = 0;
+}
+
+function spawnEnemy() {
+  let x, y;
+  let tries = 0;
+
+  do {
+    x = rand(80, WORLD.w - 80);
+    y = rand(80, WORLD.h - 80);
+    tries++;
+  } while (
+    tries < 200 &&
+    (
+      Math.hypot(x - player.x, y - player.y) < 280 ||
+      circleHitsWall({x,y,radius:25})
+    )
+  );
+
+  const type = Math.random() < .75 ? "turret" : "stalker";
+
+  enemies.push({
+    x,
+    y,
+    radius: type === "turret" ? 23 : 19,
+
+    type,
+
+    hp: type === "turret" ? 70 : 55,
+    maxHp: type === "turret" ? 70 : 55,
+
+    speed: type === "turret" ? 0 : 62 + dungeonTier * 5,
+
+    cooldown: rand(.5, 2),
+    phase: rand(0, TAU),
+    hitFlash: 0
+  });
+}
+
+/* ============================================================
+   PARTICLES
+   ============================================================ */
+
+function particle(x,y,opts={}) {
+  particles.push({
+    x,
+    y,
+    vx: opts.vx ?? rand(-30,30),
+    vy: opts.vy ?? rand(-30,30),
+    life: opts.life ?? rand(.25,.7),
+    maxLife: opts.life ?? .5,
+    size: opts.size ?? rand(3,7),
+    gravity: opts.gravity ?? 0,
+    type: opts.type ?? "ember",
+    rotation: rand(0,TAU)
+  });
+}
+
+function burst(x,y,count=10,type="ember") {
+  for (let i=0;i<count;i++) {
+    const a = rand(0,TAU);
+    const s = rand(25,100);
+
+    particle(x,y,{
+      vx:Math.cos(a)*s,
+      vy:Math.sin(a)*s,
+      life:rand(.2,.65),
+      size:rand(2,6),
+      type
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i=particles.length-1;i>=0;i--) {
+    const p = particles[i];
+
+    p.life -= dt;
+
+    if (p.life <= 0) {
+      particles.splice(i,1);
+      continue;
+    }
+
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += p.gravity * dt;
+    p.vx *= Math.pow(.08,dt);
+    p.vy *= Math.pow(.08,dt);
+  }
+}
+
+/* ============================================================
+   COMBAT
+   ============================================================ */
+
+function slash() {
+  if (player.slashCooldown > 0) return;
+
+  player.slashCooldown = .32;
+
+  const range = 76;
+  const arc = .9;
+
+  burst(
+    player.x + Math.cos(player.aim)*35,
+    player.y + Math.sin(player.aim)*35,
+    8,
+    "slash"
+  );
+
+  camera.shake = Math.max(camera.shake, 7);
+
+  for (let i=enemies.length-1;i>=0;i--) {
+    const e = enemies[i];
+
+    const d = Math.hypot(
+      e.x-player.x,
+      e.y-player.y
+    );
+
+    if (d > range + e.radius) continue;
+
+    const a = Math.atan2(
+      e.y-player.y,
+      e.x-player.x
+    );
+
+    let diff = Math.atan2(
+      Math.sin(a-player.aim),
+      Math.cos(a-player.aim)
+    );
+
+    if (Math.abs(diff) < arc) {
+      damageEnemy(e, 28);
+
+      /* Melee restores spirit energy */
+      player.arcane = clamp(
+        player.arcane + 9,
+        0,
+        player.maxArcane
+      );
+    }
+  }
+}
+
+function bow() {
+  if (player.bowCooldown > 0) return;
+
+  const cost = 13;
+
+  if (player.arcane < cost) return;
+
+  player.arcane -= cost;
+  player.bowCooldown = .22;
+
+  const speed = 530;
+
+  playerProjectiles.push({
+    x: player.x + Math.cos(player.aim)*25,
+    y: player.y + Math.sin(player.aim)*25,
+
+    vx: Math.cos(player.aim)*speed,
+    vy: Math.sin(player.aim)*speed,
+
+    radius: 6,
+    damage: 24,
+    life: 1.8,
+    rotation: player.aim
+  });
+
+  burst(
+    player.x + Math.cos(player.aim)*25,
+    player.y + Math.sin(player.aim)*25,
+    5,
+    "arrow"
+  );
+}
+
+function damageEnemy(enemy, amount) {
+  enemy.hp -= amount;
+  enemy.hitFlash = .12;
+
+  burst(enemy.x,enemy.y,7,"hit");
+  camera.shake = Math.max(camera.shake,5);
+
+  if (enemy.hp <= 0) {
+    burst(enemy.x,enemy.y,18,"death");
+
+    fragments.push({
+      x:enemy.x,
+      y:enemy.y,
+      amount:irand(1,3),
+      pulse:rand(0,TAU)
+    });
+
+    const index = enemies.indexOf(enemy);
+
+    if (index >= 0) enemies.splice(index,1);
+
+    if (enemies.length === 0) {
+      dungeonCleared = true;
+      setTimeout(() => {
+        if (state === STATE_DUNGEON && enemies.length === 0) {
+          enterVillage();
+        }
+      }, 900);
+    }
+  }
+}
+
+/* ============================================================
+   ENEMY AI
+   ============================================================ */
+
+function updateEnemies(dt) {
+  for (const e of enemies) {
+    e.cooldown -= dt;
+    e.hitFlash -= dt;
+    e.phase += dt;
+
+    const d = Math.hypot(
+      player.x-e.x,
+      player.y-e.y
+    );
+
+    const a = Math.atan2(
+      player.y-e.y,
+      player.x-e.x
+    );
+
+    if (e.type === "stalker") {
+      if (d > 150) {
+        const dx = Math.cos(a)*e.speed*dt;
+        const dy = Math.sin(a)*e.speed*dt;
+
+        moveCircle(e,dx,dy);
+      }
+    }
+
+    if (e.cooldown <= 0 && d < 680) {
+      e.cooldown = e.type === "turret"
+        ? Math.max(.8,1.55-dungeonTier*.06)
+        : Math.max(1.1,1.8-dungeonTier*.05);
+
+      const speed = e.type === "turret"
+        ? 210 + dungeonTier*8
+        : 180 + dungeonTier*7;
+
+      projectiles.push({
+        x:e.x + Math.cos(a)*22,
+        y:e.y + Math.sin(a)*22,
+        vx:Math.cos(a)*speed,
+        vy:Math.sin(a)*speed,
+        radius:7,
+        life:4,
+        damage: e.type === "turret" ? 13 : 11,
+        kind:"enemy"
+      });
+
+      burst(
+        e.x + Math.cos(a)*20,
+        e.y + Math.sin(a)*20,
+        5,
+        "magic"
+      );
+    }
+
+    if (Math.hypot(player.x-e.x,player.y-e.y)
+        < player.radius+e.radius) {
+
+      if (player.invulnerable <= 0) {
+        hurtPlayer(10);
+      }
+    }
+  }
+}
+
+/* ============================================================
+   PROJECTILES
+   ============================================================ */
+
+function updateProjectiles(dt) {
+  for (let i=projectiles.length-1;i>=0;i--) {
+    const p = projectiles[i];
+
+    p.life -= dt;
+
+    if (p.life <= 0) {
+      projectiles.splice(i,1);
+      continue;
+    }
+
+    p.x += p.vx*dt;
+    p.y += p.vy*dt;
+
+    if (
+      p.x < 0 ||
+      p.y < 0 ||
+      p.x > WORLD.w ||
+      p.y > WORLD.h ||
+      circleHitsWall(p)
+    ) {
+      burst(p.x,p.y,4,"hit");
+      projectiles.splice(i,1);
+      continue;
+    }
+
+    const d = Math.hypot(
+      p.x-player.x,
+      p.y-player.y
+    );
+
+    if (
+      d < p.radius+player.radius &&
+      player.invulnerable <= 0
+    ) {
+      hurtPlayer(p.damage);
+      projectiles.splice(i,1);
+    }
+  }
+
+  for (let i=playerProjectiles.length-1;i>=0;i--) {
+    const p = playerProjectiles[i];
+
+    p.life -= dt;
+
+    if (p.life <= 0) {
+      playerProjectiles.splice(i,1);
+      continue;
+    }
+
+    p.x += p.vx*dt;
+    p.y += p.vy*dt;
+
+    if (
+      p.x < 0 ||
+      p.y < 0 ||
+      p.x > WORLD.w ||
+      p.y > WORLD.h ||
+      circleHitsWall(p)
+    ) {
+      burst(p.x,p.y,3,"hit");
+      playerProjectiles.splice(i,1);
+      continue;
+    }
+
+    let hit = false;
+
+    for (const e of enemies) {
+      if (
+        Math.hypot(p.x-e.x,p.y-e.y)
+        < p.radius+e.radius
+      ) {
+        damageEnemy(e,p.damage);
+        hit = true;
+        break;
+      }
+    }
+
+    if (hit) {
+      playerProjectiles.splice(i,1);
+    }
+  }
+}
+
+/* ============================================================
+   PLAYER
+   ============================================================ */
+
+function getMovement() {
+  let x = 0;
+  let y = 0;
+
+  if (keys["w"] || keys["arrowup"]) y--;
+  if (keys["s"] || keys["arrowdown"]) y++;
+  if (keys["a"] || keys["arrowleft"]) x--;
+  if (keys["d"] || keys["arrowright"]) x++;
+
+  x += touch.dx;
+  y += touch.dy;
+
+  const len = Math.hypot(x,y);
+
+  if (len > 1) {
+    x /= len;
+    y /= len;
+  }
+
+  return {x,y};
+}
+
+function updatePlayer(dt) {
+  player.invulnerable = Math.max(
+    0,
+    player.invulnerable-dt
+  );
+
+  player.dashCooldown = Math.max(
+    0,
+    player.dashCooldown-dt
+  );
+
+  player.slashCooldown = Math.max(
+    0,
+    player.slashCooldown-dt
+  );
+
+  player.bowCooldown = Math.max(
+    0,
+    player.bowCooldown-dt
+  );
+
+  const move = getMovement();
+
+  if (
+    (keys["shift"] || touch.dash) &&
+    player.dashCooldown <= 0 &&
+    player.dashTime <= 0
+  ) {
+    let dx = move.x;
+    let dy = move.y;
+
+    if (Math.hypot(dx,dy) < .1) {
+      dx = Math.cos(player.aim);
+      dy = Math.sin(player.aim);
+    }
+
+    const len = Math.hypot(dx,dy) || 1;
+
+    player.dashDX = dx/len;
+    player.dashDY = dy/len;
+
+    player.dashTime = .18;
+    player.dashCooldown = player.dashMax;
+    player.invulnerable = .24;
+
+    burst(player.x,player.y,12,"dash");
+    camera.shake = Math.max(camera.shake,8);
+  }
+
+  if (player.dashTime > 0) {
+    player.dashTime -= dt;
+
+    moveCircle(
+      player,
+      player.dashDX*560*dt,
+      player.dashDY*560*dt
+    );
+
+    player.trail.push({
+      x:player.x,
+      y:player.y,
+      life:.32
+    });
+  } else {
+    moveCircle(
+      player,
+      move.x*player.speed*dt,
+      move.y*player.speed*dt
+    );
+  }
+
+  for (let i=player.trail.length-1;i>=0;i--) {
+    player.trail[i].life -= dt;
+
+    if (player.trail[i].life <= 0) {
+      player.trail.splice(i,1);
+    }
+  }
+
+  /* Aim */
+  const worldMouseX = mouse.x + camera.x;
+  const worldMouseY = mouse.y + camera.y;
+
+  if (
+    Math.abs(worldMouseX-player.x) +
+    Math.abs(worldMouseY-player.y) > 10
+  ) {
+    player.aim = Math.atan2(
+      worldMouseY-player.y,
+      worldMouseX-player.x
+    );
+  }
+
+  /* Keyboard combat */
+  if (keys[" "] || mouse.downLeft || touch.slash) {
+    slash();
+  }
+
+  if (
+    keys["e"] ||
+    mouse.downRight ||
+    touch.bow
+  ) {
+    bow();
+  }
+
+  /* Reset touch one-shot-ish attacks */
+  touch.dash = false;
+  touch.slash = false;
+  touch.bow = false;
+}
+
+function hurtPlayer(amount) {
+  if (player.invulnerable > 0) return;
+
+  player.hp -= amount;
+  player.invulnerable = .7;
+
+  burst(player.x,player.y,14,"hurt");
+  camera.shake = Math.max(camera.shake,12);
+
+  if (player.hp <= 0) {
+    player.hp = 0;
+    state = STATE_GAMEOVER;
+  }
+}
+
+/* ============================================================
+   FRAGMENTS
+   ============================================================ */
+
+let collectedFragments = 0;
+
+function updateFragments(dt) {
+  for (let i=fragments.length-1;i>=0;i--) {
+    const f = fragments[i];
+
+    f.pulse += dt*4;
+
+    const d = Math.hypot(
+      player.x-f.x,
+      player.y-f.y
+    );
+
+    if (d < 100) {
+      const a = Math.atan2(
+        player.y-f.y,
+        player.x-f.x
+      );
+
+      f.x += Math.cos(a)*120*dt;
+      f.y += Math.sin(a)*120*dt;
+    }
+
+    if (d < 24) {
+      collectedFragments += f.amount;
+
+      player.arcane = clamp(
+        player.arcane+12,
+        0,
+        player.maxArcane
+      );
+
+      burst(f.x,f.y,10,"fragment");
+
+      fragments.splice(i,1);
+    }
+  }
+}
+
+/* ============================================================
+   STATE MANAGEMENT
+   ============================================================ */
+
+function startDungeon(tier=1) {
+  dungeonTier = tier;
+  state = STATE_DUNGEON;
+  generateDungeon(tier);
+}
+
+function enterVillage() {
+  state = STATE_VILLAGE;
+  villageFade = 0;
+}
+
+function startHarderRun() {
+  dungeonTier++;
+  startDungeon(dungeonTier);
+}
+
+/* ============================================================
+   UPDATE
+   ============================================================ */
+
+function update(dt) {
+  updateParticles(dt);
+
+  if (state === STATE_DUNGEON) {
+    updatePlayer(dt);
+    updateEnemies(dt);
+    updateProjectiles(dt);
+    updateFragments(dt);
+    updateCamera(dt);
+  }
+
+  if (state === STATE_VILLAGE) {
+    villageFade = clamp(
+      villageFade + dt*.8,
+      0,
+      1
+    );
+
+    spirit.angle += dt;
+  }
+}
+
+/* ============================================================
+   DRAWING
+   ============================================================ */
+
+function drawPixelRect(x,y,w,h,fill,outline="#11191b") {
+  ctx.fillStyle = outline;
+  ctx.fillRect(
+    Math.round(x-3),
+    Math.round(y-3),
+    Math.round(w+6),
+    Math.round(h+6)
+  );
+
+  ctx.fillStyle = fill;
+  ctx.fillRect(
+    Math.round(x),
+    Math.round(y),
+    Math.round(w),
+    Math.round(h)
+  );
+}
+
+function drawDungeonBackground() {
+  ctx.fillStyle = "#18251f";
+  ctx.fillRect(0,0,VW,VH);
+
+  /* Ground tiles */
+  const tile = 40;
+
+  const sx = Math.floor(camera.x/tile)*tile;
+  const sy = Math.floor(camera.y/tile)*tile;
+
+  for (let y=sy;y<camera.y+VH+tile;y+=tile) {
+    for (let x=sx;x<camera.x+VW+tile;x+=tile) {
+      const gx = Math.floor(x/tile);
+      const gy = Math.floor(y/tile);
+
+      const variant = (gx*17 + gy*31) % 4;
+
+      ctx.fillStyle =
+        variant === 0 ? "#27382d" :
+        variant === 1 ? "#293a30" :
+        variant === 2 ? "#25352b" :
+                        "#2a3b31";
+
+      ctx.fillRect(
+        Math.floor(x-camera.x),
+        Math.floor(y-camera.y),
+        tile,
+        tile
+      );
+
+      if ((gx+gy)%7 === 0) {
+        ctx.fillStyle = "#314936";
+        ctx.fillRect(
+          Math.floor(x-camera.x+8),
+          Math.floor(y-camera.y+28),
+          14,
+          3
+        );
+      }
+    }
+  }
+
+  /* Moss patches */
+  for (let i=0;i<22;i++) {
+    const x = ((i*281)%WORLD.w)-camera.x;
+    const y = ((i*173)%WORLD.h)-camera.y;
+
+    ctx.fillStyle = "#3b5b3d";
+    ctx.fillRect(x,y,28,7);
+    ctx.fillRect(x+7,y-5,9,5);
+  }
+}
+
+function drawWalls() {
+  for (const w of walls) {
+    const x = w.x-camera.x;
+    const y = w.y-camera.y;
+
+    ctx.fillStyle = "#11191b";
+    ctx.fillRect(
+      Math.round(x-4),
+      Math.round(y-4),
+      w.w+8,
+      w.h+8
+    );
+
+    ctx.fillStyle = "#46504a";
+    ctx.fillRect(
+      Math.round(x),
+      Math.round(y),
+      w.w,
+      w.h
+    );
+
+    /* Stone blocks */
+    ctx.strokeStyle = "#303b37";
+    ctx.lineWidth = 3;
+
+    for (let xx=0;xx<w.w;xx+=32) {
+      ctx.beginPath();
+      ctx.moveTo(x+xx,y);
+      ctx.lineTo(x+xx,y+w.h);
+      ctx.stroke();
+    }
+
+    if (w.h >= 30) {
+      ctx.strokeStyle = "#657166";
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(x,y+7);
+      ctx.lineTo(x+w.w,y+7);
+      ctx.stroke();
+    }
+
+    /* Moss */
+    ctx.fillStyle = "#56764a";
+
+    if (w.w > w.h) {
+      ctx.fillRect(x+8,y,w.w*.3,5);
+      ctx.fillRect(x+w.w*.55,y,w*.12,4);
+    } else {
+      ctx.fillRect(x,y+8,5,w.h*.3);
+    }
+  }
+}
+
+function drawPillars() {
+  for (const p of pillars) {
+    const x = p.x-camera.x;
+    const y = p.y-camera.y;
+
+    ctx.fillStyle = "#12191a";
+    ctx.beginPath();
+    ctx.arc(x+3,y+5,p.radius+4,0,TAU);
+    ctx.fill();
+
+    ctx.fillStyle = "#4b5650";
+    ctx.beginPath();
+    ctx.arc(x,y,p.radius,0,TAU);
+    ctx.fill();
+
+    ctx.fillStyle = "#647064";
+    ctx.fillRect(
+      x-p.radius*.55,
+      y-p.radius*.75,
+      p.radius*1.1,
+      p.radius*.35
+    );
+
+    ctx.fillStyle = "#526c47";
+    ctx.fillRect(
+      x-p.radius*.8,
+      y-p.radius*.3,
+      7,
+      p.radius*.9
+    );
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const x = p.x-camera.x;
+    const y = p.y-camera.y;
+
+    const alpha = clamp(
+      p.life/p.maxLife,
+      0,
+      1
+    );
+
+    ctx.globalAlpha = alpha;
+
+    if (p.type === "ember") {
+      ctx.fillStyle = "#f2bd67";
+    } else if (p.type === "slash") {
+      ctx.fillStyle = "#f7e7a5";
+    } else if (p.type === "magic") {
+      ctx.fillStyle = "#b58cff";
+    } else if (p.type === "arrow") {
+      ctx.fillStyle = "#e6d19c";
+    } else if (p.type === "dash") {
+      ctx.fillStyle = "#8fd4cc";
+    } else if (p.type === "fragment") {
+      ctx.fillStyle = "#d56cdd";
+    } else if (p.type === "hurt") {
+      ctx.fillStyle = "#e76e63";
+    } else {
+      ctx.fillStyle = "#ffffff";
+    }
+
+    ctx.fillRect(
+      Math.round(x-p.size/2),
+      Math.round(y-p.size/2),
+      Math.ceil(p.size),
+      Math.ceil(p.size)
+    );
+
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawProjectiles() {
+  for (const p of projectiles) {
+    const x = p.x-camera.x;
+    const y = p.y-camera.y;
+
+    ctx.save();
+    ctx.translate(x,y);
+
+    ctx.rotate(Math.atan2(p.vy,p.vx));
+
+    ctx.fillStyle = "#f17d68";
+    ctx.fillRect(-9,-4,18,8);
+
+    ctx.fillStyle = "#ffc47c";
+    ctx.fillRect(1,-2,8,4);
+
+    ctx.restore();
+  }
+
+  for (const p of playerProjectiles) {
+    const x = p.x-camera.x;
+    const y = p.y-camera.y;
+
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.rotate(p.rotation);
+
+    ctx.fillStyle = "#f4e2a2";
+    ctx.fillRect(-14,-3,22,6);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(4,-2,8,4);
+
+    ctx.restore();
+  }
+}
+
+function drawFragments() {
+  for (const f of fragments) {
+    const x = f.x-camera.x;
+    const y = f.y-camera.y;
+
+    const bob = Math.sin(f.pulse)*4;
+
+    ctx.save();
+    ctx.translate(x,y+bob);
+    ctx.rotate(Math.PI/4);
+
+    ctx.fillStyle = "#271b35";
+    ctx.fillRect(-10,-10,20,20);
+
+    ctx.fillStyle = "#c764d1";
+    ctx.fillRect(-7,-7,14,14);
+
+    ctx.fillStyle = "#f0a2e8";
+    ctx.fillRect(-4,-7,5,5);
+
+    ctx.restore();
+  }
+}
+
+function drawEnemies() {
+  for (const e of enemies) {
+    const x = e.x-camera.x;
+    const y = e.y-camera.y;
+
+    ctx.save();
+    ctx.translate(x,y);
+
+    /* Shadow */
+    ctx.fillStyle = "rgba(0,0,0,.35)";
+    ctx.fillRect(
+      -e.radius,
+      e.radius*.7,
+      e.radius*2,
+      8
+    );
+
+    if (e.type === "turret") {
+      /* Chunky ancient turret */
+      ctx.fillStyle = "#14191a";
+      ctx.fillRect(
+        -e.radius-4,
+        -e.radius-4,
+        e.radius*2+8,
+        e.radius*2+8
+      );
+
+      ctx.fillStyle =
+        e.hitFlash > 0 ? "#e8b9a0" : "#59605b";
+
+      ctx.fillRect(
+        -e.radius,
+        -e.radius,
+        e.radius*2,
+        e.radius*2
+      );
+
+      ctx.fillStyle = "#303936";
+      ctx.fillRect(-12,-12,24,24);
+
+      ctx.rotate(
+        Math.atan2(
+          player.y-e.y,
+          player.x-e.x
+        )
+      );
+
+      ctx.fillStyle = "#9d5b65";
+      ctx.fillRect(0,-5,28,10);
+
+      ctx.fillStyle = "#f0ad72";
+      ctx.fillRect(17,-3,8,6);
+
+    } else {
+      /* Stalker */
+      ctx.fillStyle = "#14191a";
+      ctx.beginPath();
+      ctx.arc(0,0,e.radius+4,0,TAU);
+      ctx.fill();
+
+      ctx.fillStyle =
+        e.hitFlash > 0 ? "#f0a3a0" : "#73534e";
+
+      ctx.beginPath();
+      ctx.arc(0,0,e.radius,0,TAU);
+      ctx.fill();
+
+      ctx.fillStyle = "#30252a";
+
+      ctx.fillRect(-11,-9,7,7);
+      ctx.fillRect(4,-9,7,7);
+
+      ctx.fillStyle = "#d46f63";
+
+      ctx.fillRect(-9,-7,4,4);
+      ctx.fillRect(6,-7,4,4);
+    }
+
+    /* HP bar */
+    ctx.fillStyle = "#101314";
+    ctx.fillRect(
+      -24,
+      -e.radius-13,
+      48,
+      7
+    );
+
+    ctx.fillStyle = "#d96c63";
+    ctx.fillRect(
+      -22,
+      -e.radius-11,
+      44*(e.hp/e.maxHp),
+      3
+    );
+
+    ctx.restore();
+  }
+}
+
+function drawSpirit() {
+  const sx =
+    player.x +
+    Math.cos(spirit.angle)*spirit.radius;
+
+  const sy =
+    player.y +
+    Math.sin(spirit.angle)*spirit.radius +
+    Math.sin(spirit.angle*2)*4;
+
+  const x = sx-camera.x;
+  const y = sy-camera.y;
+
+  /* Light aura */
+  const gradient = ctx.createRadialGradient(
+    x,y,2,
+    x,y,110
+  );
+
+  gradient.addColorStop(0,"rgba(255,225,145,.25)");
+  gradient.addColorStop(1,"rgba(255,225,145,0)");
+
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(x,y,110,0,TAU);
+  ctx.fill();
+
+  ctx.fillStyle = "#17201c";
+  ctx.beginPath();
+  ctx.arc(x,y,15,0,TAU);
+  ctx.fill();
+
+  ctx.fillStyle = "#f4d27d";
+  ctx.beginPath();
+  ctx.arc(x,y,10,0,TAU);
+  ctx.fill();
+
+  ctx.fillStyle = "#fff4c9";
+  ctx.fillRect(x-4,y-5,6,6);
+}
+
+function drawPlayer() {
+  const x = player.x-camera.x;
+  const y = player.y-camera.y;
+
+  /* Dash ghosts */
+  for (const t of player.trail) {
+    const a = clamp(t.life/.32,0,1);
+
+    ctx.globalAlpha = a*.35;
+
+    ctx.fillStyle = "#8ed1c8";
+    ctx.fillRect(
+      Math.round(t.x-camera.x-15),
+      Math.round(t.y-camera.y-15),
+      30,
+      30
+    );
+
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.save();
+  ctx.translate(x,y);
+
+  if (player.invulnerable > 0) {
+    ctx.globalAlpha =
+      Math.floor(player.invulnerable*15)%2
+      ? .45
+      : 1;
+  }
+
+  /* Shadow */
+  ctx.fillStyle = "rgba(0,0,0,.35)";
+  ctx.fillRect(-17,15,34,8);
+
+  /* Cloak */
+  ctx.fillStyle = "#17252b";
+  ctx.fillRect(-17,-10,34,31);
+
+  ctx.fillStyle = "#31484a";
+  ctx.fillRect(-12,-15,24,12);
+
+  /* Head */
+  ctx.fillStyle = "#c18e68";
+  ctx.fillRect(-10,-18,20,18);
+
+  /* Hair/hood */
+  ctx.fillStyle = "#20282b";
+  ctx.fillRect(-12,-21,24,8);
+
+  /* Eye */
+  ctx.fillStyle = "#f3d47e";
+  ctx.fillRect(
+    player.aim > Math.PI/2 ||
+    player.aim < -Math.PI/2
+      ? -8 : 5,
+    -14,
+    4,
+    4
+  );
+
+  /* Weapon */
+  ctx.save();
+  ctx.rotate(player.aim);
+
+  ctx.fillStyle = "#bd9c62";
+  ctx.fillRect(7,-2,27,4);
+
+  ctx.fillStyle = "#f1dda1";
+  ctx.fillRect(28,-5,5,10);
+
+  ctx.restore();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   LIGHTING
+   ============================================================ */
+
+function drawLighting() {
+  const px = player.x-camera.x;
+  const py = player.y-camera.y;
+
+  ctx.save();
+
+  ctx.fillStyle = "rgba(5,8,9,.63)";
+  ctx.fillRect(0,0,VW,VH);
+
+  ctx.globalCompositeOperation = "destination-out";
+
+  const g = ctx.createRadialGradient(
+    px,py,35,
+    px,py,240
+  );
+
+  g.addColorStop(0,"rgba(0,0,0,.96)");
+  g.addColorStop(.3,"rgba(0,0,0,.72)");
+  g.addColorStop(.75,"rgba(0,0,0,.25)");
+  g.addColorStop(1,"rgba(0,0,0,0)");
+
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(px,py,240,0,TAU);
+  ctx.fill();
+
+  ctx.globalCompositeOperation = "source-over";
+
+  /* Spirit-specific warm light */
+  const sx =
+    px + Math.cos(spirit.angle)*spirit.radius;
+
+  const sy =
+    py + Math.sin(spirit.angle)*spirit.radius;
+
+  const sg = ctx.createRadialGradient(
+    sx,sy,4,
+    sx,sy,145
+  );
+
+  sg.addColorStop(0,"rgba(255,222,139,.32)");
+  sg.addColorStop(1,"rgba(255,222,139,0)");
+
+  ctx.fillStyle = sg;
+  ctx.beginPath();
+  ctx.arc(sx,sy,145,0,TAU);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   HUD
+   ============================================================ */
+
+function drawHUD() {
+  /* Health */
+  const barX = 24;
+  const barY = 22;
+  const barW = 230;
+
+  ctx.fillStyle = "#101719";
+  ctx.fillRect(barX-4,barY-4,barW+8,22);
+
+  ctx.fillStyle = "#b95658";
+  ctx.fillRect(
+    barX,
+    barY,
+    barW*(player.hp/player.maxHp),
+    14
+  );
+
+  ctx.fillStyle = "#e88b79";
+  ctx.fillRect(
+    barX,
+    barY,
+    barW*(player.hp/player.maxHp),
+    5
+  );
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 13px monospace";
+  ctx.fillText(
+    `VITALITY ${Math.ceil(player.hp)}/${player.maxHp}`,
+    barX,
+    barY+32
+  );
+
+  /* Arcane */
+  const ax = 24;
+  const ay = 65;
+
+  ctx.fillStyle = "#101719";
+  ctx.fillRect(ax-4,ay-4,barW+8,18);
+
+  ctx.fillStyle = "#8062c4";
+  ctx.fillRect(
+    ax,
+    ay,
+    barW*(player.arcane/player.maxArcane),
+    10
+  );
+
+  ctx.fillStyle = "#bda2f1";
+  ctx.fillRect(
+    ax,
+    ay,
+    barW*(player.arcane/player.maxArcane),
+    3
+  );
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(
+    `ARCANE ${Math.ceil(player.arcane)}/${player.maxArcane}`,
+    ax,
+    ay+28
+  );
+
+  /* Objective */
+  ctx.textAlign = "right";
+
+  ctx.font = "bold 14px monospace";
+
+  if (enemies.length > 0) {
+    ctx.fillStyle = "#f1e3bc";
+    ctx.fillText(
+      `SANCTUARY THREATS: ${enemies.length}`,
+      VW-24,
+      30
+    );
+  } else {
+    ctx.fillStyle = "#bce5a0";
+    ctx.fillText(
+      "SANCTUARY CLEARED",
+      VW-24,
+      30
+    );
+  }
+
+  ctx.fillText(
+    `DEPTH ${dungeonTier}`,
+    VW-24,
+    53
+  );
+
+  ctx.textAlign = "left";
+
+  /* Controls */
+  if (VW > 700) {
+    ctx.fillStyle = "rgba(0,0,0,.35)";
+    ctx.fillRect(
+      VW-310,
+      VH-48,
+      286,
+      28
+    );
+
+    ctx.fillStyle = "#ddd6bd";
+    ctx.font = "12px monospace";
+
+    ctx.fillText(
+      "WASD MOVE   SHIFT DASH   SPACE SLASH   E BOW",
+      VW-300,
+      VH-29
+    );
+  }
+
+  /* Fragment counter */
+  ctx.fillStyle = "#d98adf";
+  ctx.font = "bold 14px monospace";
+
+  ctx.fillText(
+    `CORRUPTED FRAGMENTS  ◆ ${collectedFragments}`,
+    24,
+    VH-26
+  );
+}
+
+/* ============================================================
+   VILLAGE
+   ============================================================ */
+
+function drawVillage() {
+  ctx.fillStyle = "#20362c";
+  ctx.fillRect(0,0,VW,VH);
+
+  /* Sky */
+  ctx.fillStyle = "#7aa18d";
+  ctx.fillRect(0,0,VW,VH*.52);
+
+  /* Moon */
+  ctx.fillStyle = "#f2dca5";
+  ctx.beginPath();
+  ctx.arc(
+    VW*.75,
+    VH*.18,
+    46,
+    0,
+    TAU
+  );
+  ctx.fill();
+
+  /* Mountains */
+  ctx.fillStyle = "#456957";
+
+  ctx.beginPath();
+  ctx.moveTo(0,VH*.52);
+  ctx.lineTo(VW*.2,VH*.25);
+  ctx.lineTo(VW*.42,VH*.52);
+  ctx.lineTo(VW*.64,VH*.28);
+  ctx.lineTo(VW,VH*.52);
+  ctx.lineTo(VW,VH);
+  ctx.lineTo(0,VH);
+  ctx.closePath();
+  ctx.fill();
+
+  /* Ground */
+  ctx.fillStyle = "#2c4934";
+  ctx.fillRect(0,VH*.52,VW,VH*.48);
+
+  /* Village path */
+  ctx.fillStyle = "#9a805d";
+
+  ctx.beginPath();
+  ctx.moveTo(VW*.43,VH);
+  ctx.lineTo(VW*.55,VH);
+  ctx.lineTo(VW*.51,VH*.52);
+  ctx.lineTo(VW*.47,VH*.52);
+  ctx.closePath();
+  ctx.fill();
+
+  /* Houses */
+  drawHouse(VW*.25,VH*.47,130,100);
+  drawHouse(VW*.69,VH*.45,145,105);
+
+  /* Sanctuary tree */
+  const tx = VW*.5;
+  const ty = VH*.39;
+
+  ctx.fillStyle = "#513f31";
+  ctx.fillRect(tx-15,ty,30,170);
+
+  ctx.fillStyle = "#34593d";
+
+  for (let i=0;i<9;i++) {
+    const a = i/9*TAU;
+
+    ctx.beginPath();
+    ctx.arc(
+      tx+Math.cos(a)*65,
+      ty+Math.sin(a)*45,
+      48,
+      0,
+      TAU
+    );
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#4e7748";
+  ctx.beginPath();
+  ctx.arc(tx,ty,65,0,TAU);
+  ctx.fill();
+
+  /* Spirit */
+  const sx = tx + Math.cos(spirit.angle)*35;
+  const sy = ty + Math.sin(spirit.angle)*25;
+
+  ctx.fillStyle = "rgba(255,225,145,.2)";
+  ctx.beginPath();
+  ctx.arc(sx,sy,80,0,TAU);
+  ctx.fill();
+
+  ctx.fillStyle = "#f4d27d";
+  ctx.beginPath();
+  ctx.arc(sx,sy,12,0,TAU);
+  ctx.fill();
+
+  /* Text panel */
+  ctx.fillStyle = "rgba(13,21,19,.9)";
+  ctx.fillRect(
+    VW*.16,
+    VH*.08,
+    VW*.68,
+    VH*.22
+  );
+
+  ctx.strokeStyle = "#8e7654";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(
+    VW*.16,
+    VH*.08,
+    VW*.68,
+    VH*.22
+  );
+
+  ctx.textAlign = "center";
+
+  ctx.fillStyle = "#f2dfae";
+  ctx.font = "bold 28px Georgia, serif";
+  ctx.fillText(
+    "THE MOSSBOUND HAVEN",
+    VW/2,
+    VH*.15
+  );
+
+  ctx.font = "15px monospace";
+  ctx.fillStyle = "#c5cbbd";
+
+  ctx.fillText(
+    "The sanctuary has fallen silent.",
+    VW/2,
+    VH*.20
+  );
+
+  ctx.fillText(
+    "But the fragments whisper of deeper ruins.",
+    VW/2,
+    VH*.24
+  );
+
+  ctx.fillStyle = "#d58ada";
+  ctx.font = "bold 17px monospace";
+
+  ctx.fillText(
+    `CORRUPTED ARCANE FRAGMENTS: ◆ ${collectedFragments}`,
+    VW/2,
+    VH*.275
+  );
+
+  ctx.textAlign = "left";
+
+  /* Button */
+  const bw = Math.min(350,VW*.65);
+  const bh = 58;
+  const bx = VW/2-bw/2;
+  const by = VH*.78;
+
+  ctx.fillStyle = "#141d1b";
+  ctx.fillRect(bx+4,by+5,bw,bh);
+
+  ctx.fillStyle = "#806046";
+  ctx.fillRect(bx,by,bw,bh);
+
+  ctx.fillStyle = "#b89a68";
+  ctx.fillRect(bx+4,by+4,bw-8,8);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff0c6";
+  ctx.font = "bold 17px monospace";
+
+  ctx.fillText(
+    `DESCEND AGAIN — DEPTH ${dungeonTier+1}`,
+    VW/2,
+    by+35
+  );
+
+  ctx.textAlign = "left";
+
+  /* Interaction */
+  if (
+    mouse.x >= bx &&
+    mouse.x <= bx+bw &&
+    mouse.y >= by &&
+    mouse.y <= by+bh
+  ) {
+    ctx.strokeStyle = "#f6dda2";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(bx,by,bw,bh);
+
+    if (mouse.downLeft) {
+      mouse.downLeft = false;
+      startHarderRun();
+    }
+  }
+}
+
+function drawHouse(x,y,w,h) {
+  ctx.fillStyle = "#18251f";
+
+  ctx.fillRect(
+    x-w/2,
+    y,
+    w,
+    h
+  );
+
+  ctx.fillStyle = "#6e4f3e";
+
+  ctx.beginPath();
+  ctx.moveTo(x-w/2-15,y);
+  ctx.lineTo(x,y-70);
+  ctx.lineTo(x+w/2+15,y);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#b4a16e";
+
+  ctx.fillRect(
+    x-15,
+    y+50,
+    30,
+    50
+  );
+
+  ctx.fillStyle = "#89a69b";
+
+  ctx.fillRect(
+    x-w/2+18,
+    y+25,
+    28,
+    24
+  );
+
+  ctx.fillRect(
+    x+w/2-46,
+    y+25,
+    28,
+    24
+  );
+}
+
+/* ============================================================
+   GAME OVER
+   ============================================================ */
+
+function drawGameOver() {
+  ctx.fillStyle = "rgba(7,10,11,.86)";
+  ctx.fillRect(0,0,VW,VH);
+
+  ctx.textAlign = "center";
+
+  ctx.fillStyle = "#df756c";
+  ctx.font = "bold 48px Georgia,serif";
+  ctx.fillText(
+    "THE SPIRIT FADES",
+    VW/2,
+    VH*.34
+  );
+
+  ctx.fillStyle = "#d4d0bc";
+  ctx.font = "15px monospace";
+
+  ctx.fillText(
+    "The sanctuary remembers your failure.",
+    VW/2,
+    VH*.43
+  );
+
+  ctx.fillStyle = "#d38bd9";
+  ctx.font = "bold 17px monospace";
+
+  ctx.fillText(
+    `FRAGMENTS RECOVERED: ◆ ${collectedFragments}`,
+    VW/2,
+    VH*.49
+  );
+
+  const bw = 260;
+  const bh = 55;
+  const bx = VW/2-bw/2;
+  const by = VH*.60;
+
+  ctx.fillStyle = "#806046";
+  ctx.fillRect(bx,by,bw,bh);
+
+  ctx.fillStyle = "#fff0c6";
+  ctx.font = "bold 17px monospace";
+
+  ctx.fillText(
+    "RESTART DUNGEON [R]",
+    VW/2,
+    by+34
+  );
+
+  ctx.textAlign = "left";
+
+  if (
+    mouse.x >= bx &&
+    mouse.x <= bx+bw &&
+    mouse.y >= by &&
+    mouse.y <= by+bh &&
+    mouse.downLeft
+  ) {
+    mouse.downLeft = false;
+    startDungeon(dungeonTier);
+  }
+}
+
+/* ============================================================
+   MAIN DRAW
+   ============================================================ */
+
+function draw() {
+  ctx.clearRect(0,0,VW,VH);
+
+  if (state === STATE_DUNGEON) {
+    drawDungeonBackground();
+
+    ctx.save();
+
+    let shakeX = 0;
+    let shakeY = 0;
+
+    if (camera.shake > .1) {
+      shakeX = rand(-camera.shake,camera.shake);
+      shakeY = rand(-camera.shake,camera.shake);
+    }
+
+    ctx.translate(shakeX,shakeY);
+
+    drawWalls();
+    drawPillars();
+    drawFragments();
+    drawProjectiles();
+    drawEnemies();
+    drawSpirit();
+    drawPlayer();
+    drawParticles();
+
+    ctx.restore();
+
+    drawLighting();
+    drawHUD();
+  }
+
+  if (state === STATE_VILLAGE) {
+    drawVillage();
+  }
+
+  if (state === STATE_GAMEOVER) {
+    /* Frozen dungeon underneath */
+    drawDungeonBackground();
+    drawWalls();
+    drawPillars();
+    drawFragments();
+    drawEnemies();
+    drawSpirit();
+    drawPlayer();
+    drawGameOver();
+  }
+}
+
+/* ============================================================
+   LOOP
+   ============================================================ */
+
+let last = performance.now();
+
+function loop(now) {
+  let dt = (now-last)/1000;
+  last = now;
+
+  /* Avoid huge physics jumps after tab switching */
+  dt = Math.min(dt,.033);
+
+  spirit.angle += dt*.9;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+/* ============================================================
+   START
+   ============================================================ */
+
+startDungeon(1);
+requestAnimationFrame(loop);
+
+</script>
 </body>
 </html>
+```
